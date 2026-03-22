@@ -4,6 +4,7 @@ All tunable parameters live here. Never hardcode limits or API settings elsewher
 """
 import os
 from dataclasses import dataclass
+
 from dotenv import load_dotenv
 
 load_dotenv()
