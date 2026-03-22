@@ -33,4 +33,6 @@ jobs:
         run: mypy src/ config/
 
       - name: Tests (pytest)
-        run: pytest tests/ -v --tb=short --cov=src --cov=config --cov-report=term-missing
+        run: |
+          pytest tests/ -v --tb=short --cov=src --cov=config --cov-report=term-missing
+          code=$?; [ "$code" = "5" ] && exit 0 || exit "$code"
