@@ -33,3 +33,29 @@ async def test_insert_and_read_market(tmp_db):
         row = await cur.fetchone()
 
     assert row == ("Will X happen?", 0.42)
+
+
+async def test_get_db_runs_migrations(tmp_path):
+    """Test that get_db creates all required tables via migrations."""
+    from src.db.connection import get_db
+
+    db_path = str(tmp_path / "test.db")
+    async with get_db(path=db_path) as db:
+        async with db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ) as cursor:
+            tables = {row[0] for row in await cursor.fetchall()}
+    assert tables == {"calibration", "markets", "predictions", "trades"}
+
+
+async def test_get_db_read_only_skips_migrations(tmp_path):
+    """Test that read-only mode skips migrations on an empty DB."""
+    from src.db.connection import get_db
+
+    db_path = str(tmp_path / "empty.db")
+    async with get_db(path=db_path, read_only=True) as db:
+        async with db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ) as cursor:
+            tables = await cursor.fetchall()
+    assert len(tables) == 0
