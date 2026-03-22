@@ -63,3 +63,25 @@ def test_kelly_fraction_extreme_probability():
     # Degenerate: we're certain it resolves YES, market at 50%
     result = kelly_fraction(our_prob=1.0, market_price=0.50)
     assert result == pytest.approx(1.0, abs=1e-6)
+
+
+def test_kelly_fraction_raises_on_invalid_market_price():
+    with pytest.raises(ValueError):
+        kelly_fraction(our_prob=0.5, market_price=0.0)
+    with pytest.raises(ValueError):
+        kelly_fraction(our_prob=0.5, market_price=1.0)
+
+
+def test_kelly_fraction_raises_on_invalid_prob():
+    with pytest.raises(ValueError):
+        kelly_fraction(our_prob=1.5, market_price=0.5)
+    with pytest.raises(ValueError):
+        kelly_fraction(our_prob=-0.1, market_price=0.5)
+
+
+def test_kelly_fraction_non_symmetric_market():
+    # our_prob=0.80, market_price=0.60
+    # b = (1-0.60)/0.60 = 0.6667
+    # f* = (0.6667*0.80 - 0.20) / 0.6667 = (0.5333 - 0.20) / 0.6667 = 0.3333/0.6667 = 0.50
+    result = kelly_fraction(our_prob=0.80, market_price=0.60)
+    assert result == pytest.approx(0.50, abs=1e-4)
