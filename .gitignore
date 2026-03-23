@@ -17,6 +17,7 @@ venv/
 
 # Claude Code (local only — not for public repo)
 CLAUDE.md
+new-summary.md
 
 # IDE
 .vscode/
