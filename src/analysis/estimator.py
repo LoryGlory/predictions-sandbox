@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import anthropic
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config.settings import settings
 from src.analysis.prompts import MARKET_ANALYSIS_SYSTEM, market_analysis_prompt
@@ -35,6 +36,25 @@ class Estimator:
         self._client = anthropic.Anthropic(api_key=api_key or settings.anthropic_api_key)
         self._model = model or settings.model
 
+    @retry(
+        retry=retry_if_exception_type(anthropic.APIError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
+    def _call_api(self, model: str, max_tokens: int, system: str, messages: Any) -> str:
+        """Call Claude API with retry. Returns raw response text."""
+        response = self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+        block = response.content[0]
+        if not isinstance(block, anthropic.types.TextBlock):
+            raise ValueError(f"Unexpected response block type: {type(block)}")
+        return block.text
+
     async def estimate(
         self,
         question: str,
@@ -57,19 +77,13 @@ class Estimator:
         user_message = market_analysis_prompt(question, context, market_price)
 
         # Anthropic SDK is sync; wrap in asyncio.to_thread for async pipelines
-        response = await asyncio.to_thread(
-            lambda: self._client.messages.create(
-                model=self._model,
-                max_tokens=1024,
-                system=MARKET_ANALYSIS_SYSTEM,
-                messages=[{"role": "user", "content": user_message}],
-            )
+        raw = await asyncio.to_thread(
+            self._call_api,
+            model=self._model,
+            max_tokens=1024,
+            system=MARKET_ANALYSIS_SYSTEM,
+            messages=[{"role": "user", "content": user_message}],
         )
-
-        first_block = response.content[0]
-        if not isinstance(first_block, anthropic.types.TextBlock):
-            raise ValueError(f"Unexpected response block type: {type(first_block)}")
-        raw = first_block.text
         return self._parse_response(raw, model=self._model)
 
     def _parse_response(self, raw: str, model: str) -> ProbabilityEstimate:

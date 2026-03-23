@@ -8,6 +8,7 @@ API docs: https://docs.manifold.markets/api
 from typing import Any
 
 import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config.settings import settings
 
@@ -40,6 +41,12 @@ class ManifoldClient:
         if self._client:
             await self._client.aclose()
 
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     async def get_markets(
         self,
         limit: int = 20,
@@ -63,6 +70,12 @@ class ManifoldClient:
         resp.raise_for_status()
         return resp.json()
 
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     async def get_market(self, market_id: str) -> dict[str, Any]:
         """Fetch a single market by ID."""
         assert self._client is not None, _ERR_CONTEXT_MANAGER
@@ -70,6 +83,12 @@ class ManifoldClient:
         resp.raise_for_status()
         return resp.json()
 
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     async def place_bet(
         self,
         market_id: str,
