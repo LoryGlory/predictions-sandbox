@@ -48,4 +48,12 @@ CREATE TABLE IF NOT EXISTS calibration (
     brier_score     REAL,
     resolved_at     TEXT
 );
+
+CREATE TABLE IF NOT EXISTS api_cost_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    date        TEXT NOT NULL DEFAULT (date('now')),
+    calls       INTEGER NOT NULL DEFAULT 0,
+    est_cost_usd REAL NOT NULL DEFAULT 0.0,
+    UNIQUE(date)
+);
 """
