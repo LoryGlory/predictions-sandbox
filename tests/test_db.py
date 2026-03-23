@@ -18,7 +18,7 @@ async def test_migrations_create_tables(tmp_db):
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
     ) as cursor:
         tables = {row[0] for row in await cursor.fetchall()}
-    assert tables == {"calibration", "markets", "predictions", "trades"}
+    assert tables == {"api_cost_log", "calibration", "markets", "predictions", "trades"}
 
 
 async def test_insert_and_read_market(tmp_db):
@@ -45,7 +45,7 @@ async def test_get_db_runs_migrations(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         ) as cursor:
             tables = {row[0] for row in await cursor.fetchall()}
-    assert tables == {"calibration", "markets", "predictions", "trades"}
+    assert tables == {"api_cost_log", "calibration", "markets", "predictions", "trades"}
 
 
 async def test_get_db_read_only_skips_migrations(tmp_path):

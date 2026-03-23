@@ -15,6 +15,7 @@ One cycle:
 """
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from config.settings import settings
 from src.analysis.estimator import Estimator
@@ -27,6 +28,8 @@ from src.trading.kelly import kelly_bet_size
 from src.trading.risk import BudgetGuardian
 
 logger = logging.getLogger(__name__)
+
+COST_PER_ESTIMATE_USD = 0.003
 
 
 async def run_cycle() -> None:
@@ -67,6 +70,28 @@ async def run_cycle() -> None:
                 row = await cur.fetchone()
             market_db_id = row["id"]
 
+            # Check if we estimated this market recently and price hasn't moved much
+            async with db.execute(
+                """SELECT estimated_prob, timestamp FROM predictions
+                   WHERE market_id = ?
+                   ORDER BY timestamp DESC LIMIT 1""",
+                (market_db_id,),
+            ) as cur:
+                last_pred = await cur.fetchone()
+
+            if last_pred:
+                hours_since = (
+                    datetime.now(timezone.utc) -
+                    datetime.fromisoformat(last_pred["timestamp"].replace("Z", "+00:00"))
+                ).total_seconds() / 3600
+                price_moved = abs(market_price - last_pred["estimated_prob"])
+                if hours_since < 4 and price_moved < 0.03:
+                    logger.debug(
+                        "Skipping %s — estimated %.1fh ago, price moved %.1f%%",
+                        question[:40], hours_since, price_moved * 100,
+                    )
+                    continue
+
             # Get Claude's estimate
             try:
                 estimate = await estimator.estimate(question, market_price=market_price)
@@ -85,6 +110,17 @@ async def run_cycle() -> None:
                     estimate.confidence,
                     estimate.reasoning,
                 ),
+            )
+            await db.commit()
+
+            # Track API cost
+            await db.execute(
+                """INSERT INTO api_cost_log (date, calls, est_cost_usd)
+                   VALUES (date('now'), 1, ?)
+                   ON CONFLICT(date) DO UPDATE SET
+                       calls = calls + 1,
+                       est_cost_usd = est_cost_usd + excluded.est_cost_usd""",
+                (COST_PER_ESTIMATE_USD,),
             )
             await db.commit()
 

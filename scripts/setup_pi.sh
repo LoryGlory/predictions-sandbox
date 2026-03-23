@@ -63,11 +63,11 @@ EOF
 
 sudo tee "$TIMER_FILE" > /dev/null << EOF
 [Unit]
-Description=Run prediction pipeline every 5 minutes
+Description=Run prediction pipeline every 30 minutes
 
 [Timer]
 OnBootSec=60
-OnUnitActiveSec=5min
+OnUnitActiveSec=30min
 Unit=${SERVICE_NAME}.service
 
 [Install]

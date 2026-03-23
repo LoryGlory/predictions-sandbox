@@ -29,7 +29,7 @@ class Settings:
     model: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 
     # Pipeline
-    poll_interval_seconds: int = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
+    poll_interval_seconds: int = int(os.getenv("POLL_INTERVAL_SECONDS", "1800"))
     max_markets_per_cycle: int = int(os.getenv("MAX_MARKETS_PER_CYCLE", "20"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
