@@ -4,13 +4,14 @@ A Raspberry Pi 5-based prediction market trading pipeline. Polls Manifold Market
 
 ## What it does
 
-1. Polls Manifold Markets every 5 minutes for active binary markets
-2. Sends market questions to Claude (Sonnet) for probability estimates
-3. Compares Claude's estimate against the market price to find edges
-4. Applies fractional Kelly Criterion for bet sizing (conservative 0.25x)
-5. Enforces hard budget limits — starts in calibration mode (no real bets)
-6. Logs all predictions and trades to SQLite
-7. Tracks calibration via Brier scores
+1. Polls Manifold Markets every 30 minutes for active binary markets
+2. Skips re-estimation if a market was predicted <4h ago and price moved <3pp (dedup)
+3. Sends market questions to Claude (Sonnet) for probability estimates with full reasoning
+4. Compares Claude's estimate against the market price to find edges
+5. Applies fractional Kelly Criterion for bet sizing (conservative 0.25x)
+6. Enforces hard budget limits — starts in calibration mode (no real bets)
+7. Logs all predictions, trades, and daily API cost to SQLite
+8. Tracks calibration via Brier scores, sliceable by market category
 
 ## Quick start (local dev)
 
@@ -35,7 +36,7 @@ cp .env.example .env
 bash scripts/setup_pi.sh
 ```
 
-After setup, the pipeline runs every 5 minutes via systemd timer.
+After setup, the pipeline runs every 30 minutes via systemd timer.
 
 ## Backtesting
 
@@ -65,12 +66,24 @@ pytest tests/ -v
 ## Architecture
 
 ```
-Manifold API → scanner → Claude estimator → Kelly sizing → budget guardian → paper trade → SQLite
+Manifold API → scanner → dedup check → Claude estimator → Kelly sizing → budget guardian → paper trade → SQLite
 ```
 
-- **Phase 1 (current):** Calibration mode — no real bets, logging only
-- **Phase 2:** FastAPI dashboard for local network monitoring
-- **Phase 3:** Live trading on Manifold (after calibration validates)
+**Two-machine design (current + future):**
+- **Raspberry Pi 5** — secure orchestrator: holds API keys, enforces budget, makes trade decisions. Never runs LLM inference locally.
+- **Mac Mini M4** *(future)* — runs MiroFish swarm intelligence + Ollama locally. Pi calls it over LAN for additional probability signals.
+- **Cloud GPU** *(future)* — burst capacity for high-edge trades via RunPod/Vast.ai.
+
+**Phases:**
+
+| Phase | Status | What |
+|-------|--------|------|
+| 1 | ✅ Done | CLI pipeline, Manifold, Claude, SQLite, paper trades, dedup, retries |
+| 2 | Planned | FastAPI dashboard (local network, Tailscale for phone access) |
+| 3 | Planned | Live Manifold trades (real mana) |
+| 4 | Planned | Telegram notifications + cost tracking alerts |
+| 5 | Future | MiroFish swarm consensus (requires Mac Mini M4) |
+| 6 | Future | Polymarket live trading (real USDC on Polygon) |
 
 ## Configuration
 
@@ -82,6 +95,7 @@ All settings via `.env` (see `.env.example`). Key ones:
 | `KELLY_FRACTION` | `0.25` | Quarter Kelly (conservative) |
 | `MIN_EDGE_THRESHOLD` | `0.05` | Min edge to bet (5%) |
 | `MAX_MARKETS_PER_CYCLE` | `20` | Markets per polling cycle |
+| `POLL_INTERVAL_SECONDS` | `1800` | Polling interval (30 min default) |
 
 ## Project structure
 
