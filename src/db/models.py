@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS markets (
     external_id TEXT,
     question    TEXT    NOT NULL,
     category    TEXT,
+    tags        TEXT,
     close_date  TEXT,
     current_price REAL  NOT NULL DEFAULT 0.5,
     last_updated  TEXT  NOT NULL DEFAULT (datetime('now')),
