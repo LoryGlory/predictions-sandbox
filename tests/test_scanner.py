@@ -1,7 +1,7 @@
 """Unit tests for market scanner filter logic."""
 import time
 
-from src.markets.scanner import filter_markets, is_tradeable
+from src.markets.scanner import filter_markets, get_tags, is_tradeable
 
 
 def binary_market(**kwargs):
@@ -60,3 +60,18 @@ def test_filter_markets_excludes_non_tradeable():
     ]
     result = filter_markets(markets)
     assert len(result) == 2
+
+
+def test_get_tags_from_group_slugs():
+    market = {"groupSlugs": ["politics", "us-elections"], "outcomeType": "BINARY"}
+    assert get_tags(market) == ["politics", "us-elections"]
+
+
+def test_get_tags_fallback_to_tags_field():
+    market = {"tags": ["science"], "outcomeType": "BINARY"}
+    assert get_tags(market) == ["science"]
+
+
+def test_get_tags_empty_when_none():
+    market = {"outcomeType": "BINARY"}
+    assert get_tags(market) == []

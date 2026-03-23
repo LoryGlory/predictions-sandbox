@@ -50,3 +50,11 @@ def filter_markets(
     """
     tradeable = [m for m in markets if is_tradeable(m)]
     return tradeable[:limit]
+
+
+def get_tags(market: dict[str, Any]) -> list[str]:
+    """Extract tags from a Manifold market dict.
+
+    Checks 'groupSlugs' first (newer API), falls back to 'tags'.
+    """
+    return market.get("groupSlugs") or market.get("tags") or []

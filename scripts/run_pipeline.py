@@ -14,6 +14,7 @@ One cycle:
 7. Log everything to SQLite
 """
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -52,14 +53,19 @@ async def run_cycle() -> None:
             market_price = market.get("probability", 0.5)
             external_id = market.get("id", "")
 
+            # Extract tags from Manifold market (may be 'groupSlugs', 'tags', or 'groups')
+            raw_tags = market.get("groupSlugs") or market.get("tags") or []
+            tags_json = json.dumps(raw_tags) if raw_tags else None
+
             # Upsert market record
             await db.execute(
-                """INSERT INTO markets (platform, external_id, question, current_price)
-                   VALUES (?, ?, ?, ?)
+                """INSERT INTO markets (platform, external_id, question, current_price, tags)
+                   VALUES (?, ?, ?, ?, ?)
                    ON CONFLICT(platform, external_id) DO UPDATE SET
                        current_price=excluded.current_price,
+                       tags=excluded.tags,
                        last_updated=datetime('now')""",
-                ("manifold", external_id, question, market_price),
+                ("manifold", external_id, question, market_price, tags_json),
             )
             await db.commit()
 
