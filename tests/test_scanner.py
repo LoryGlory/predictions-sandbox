@@ -1,7 +1,7 @@
 """Unit tests for market scanner filter logic."""
 import time
 
-from src.markets.scanner import filter_markets, get_tags, is_low_signal, is_tradeable
+from src.markets.scanner import filter_markets, get_tags, is_tradeable
 
 
 def binary_market(**kwargs):

@@ -11,7 +11,6 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-
 # Markets matching these patterns are pure noise — Claude has no informational edge.
 # Derived from backtest analysis showing 0.25 Brier (coin flip) on these categories.
 _LOW_SIGNAL_PATTERNS = [

@@ -33,6 +33,10 @@ class Settings:
     max_markets_per_cycle: int = int(os.getenv("MAX_MARKETS_PER_CYCLE", "20"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
+    # Telegram notifications
+    telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
+
     # Paths
     db_path: str = os.getenv("DB_PATH", "predictions.db")
 
