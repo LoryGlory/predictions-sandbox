@@ -101,6 +101,33 @@ def test_accepts_politics_question():
     assert is_tradeable(binary_market(question="Will Biden win the 2024 election?")) is True
 
 
+# ── No-edge category filter tests ────────────────────────────────────────
+
+
+def test_rejects_cricket_market():
+    assert is_tradeable(binary_market(
+        question="Will CSK beat RR?", groupSlugs=["cricket", "ipl-2026"]
+    )) is False
+
+
+def test_rejects_crypto_speculation():
+    assert is_tradeable(binary_market(
+        question="Will Bitcoin hit $100k?", groupSlugs=["crypto-speculation"]
+    )) is False
+
+
+def test_rejects_sports_betting():
+    assert is_tradeable(binary_market(
+        question="Will Arsenal win?", groupSlugs=["football", "sports-betting"]
+    )) is False
+
+
+def test_accepts_market_without_no_edge_tags():
+    assert is_tradeable(binary_market(
+        question="Will AI pass the bar exam?", groupSlugs=["technology", "ai"]
+    )) is True
+
+
 # ── Tag extraction tests ─────────────────────────────────────────────────
 
 

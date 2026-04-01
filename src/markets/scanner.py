@@ -21,6 +21,18 @@ _LOW_SIGNAL_PATTERNS = [
     re.compile(r"ALS\s+Tennis", re.IGNORECASE),
 ]
 
+# Categories where Claude has no edge — market reflects real-time data Claude can't access.
+# Derived from per-category Brier analysis (n=247, 2026-04-01).
+_NO_EDGE_CATEGORIES = frozenset({
+    "cricket",
+    "ipl-2026",
+    "sports-betting",
+    "sports-default",
+    "football",
+    "crypto-speculation",
+    "elections",
+})
+
 # Non-ASCII-heavy titles signal non-English markets where Claude's reasoning degrades
 _MIN_ASCII_RATIO = 0.5
 
@@ -58,6 +70,10 @@ def is_tradeable(market: dict[str, Any], min_prob: float = 0.05, max_prob: float
 
     question = market.get("question", "")
     if is_low_signal(question):
+        return False
+
+    tags = set(get_tags(market))
+    if tags & _NO_EDGE_CATEGORIES:
         return False
 
     prob = market.get("probability", 0.5)
