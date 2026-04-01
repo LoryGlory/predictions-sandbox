@@ -1,7 +1,7 @@
 """Unit tests for market scanner filter logic."""
 import time
 
-from src.markets.scanner import filter_markets, get_tags, is_tradeable
+from src.markets.scanner import filter_markets, get_tags, is_low_signal, is_tradeable
 
 
 def binary_market(**kwargs):
@@ -60,6 +60,48 @@ def test_filter_markets_excludes_non_tradeable():
     ]
     result = filter_markets(markets)
     assert len(result) == 2
+
+
+# ── Low-signal filter tests ──────────────────────────────────────────────
+
+
+def test_rejects_coin_flip():
+    assert is_tradeable(binary_market(question="Daily Coin Flip")) is False
+
+
+def test_rejects_daily_coinflip_variant():
+    assert is_tradeable(binary_market(question="Daily Coinflip")) is False
+
+
+def test_rejects_heads_or_tails():
+    assert is_tradeable(binary_market(question="heads or tails")) is False
+
+
+def test_rejects_tails_or_heads():
+    assert is_tradeable(binary_market(question="tails or heads")) is False
+
+
+def test_rejects_daily_market():
+    assert is_tradeable(binary_market(question="Daily market")) is False
+
+
+def test_rejects_simulation_match():
+    assert is_tradeable(binary_market(question="Will P1 win ALS Tennis Simulation Match #002?")) is False
+
+
+def test_rejects_non_english():
+    assert is_tradeable(binary_market(question="האם נבון יהיה ה ס?")) is False
+
+
+def test_accepts_english_analysis_question():
+    assert is_tradeable(binary_market(question="Will the S&P 500 close above 5000 by end of Q2?")) is True
+
+
+def test_accepts_politics_question():
+    assert is_tradeable(binary_market(question="Will Biden win the 2024 election?")) is True
+
+
+# ── Tag extraction tests ─────────────────────────────────────────────────
 
 
 def test_get_tags_from_group_slugs():
