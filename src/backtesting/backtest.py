@@ -168,8 +168,15 @@ async def run_backtest(
             # Use the probability at resolution time as the market baseline
             market_price = market.get("probability", 0.5)
 
-            # Extract tags for category analysis
+            # Fetch full market details for tags (list endpoint doesn't include them)
             raw_tags = market.get("groupSlugs") or market.get("tags") or []
+            if not raw_tags and external_id:
+                try:
+                    async with ManifoldClient() as detail_client:
+                        full_market = await detail_client.get_market(external_id)
+                    raw_tags = full_market.get("groupSlugs") or full_market.get("tags") or []
+                except Exception as e:
+                    logger.debug("Could not fetch tags for %s: %s", external_id, e)
             tags_json = json.dumps(raw_tags) if raw_tags else None
 
             logger.info("Estimating: %s", question[:60])
