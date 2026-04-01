@@ -12,14 +12,9 @@ Your job is to estimate the probability that a market resolves YES.
 Be honest about uncertainty. A well-calibrated forecaster's 70% predictions
 come true ~70% of the time. Do not anchor to the current market price.
 
-Always respond with valid JSON matching this schema:
-{
-  "reasoning": "<your step-by-step analysis, 2-5 sentences>",
-  "factors_for": ["<factor 1>", "<factor 2>"],
-  "factors_against": ["<factor 1>", "<factor 2>"],
-  "estimated_probability": <float 0.0 to 1.0>,
-  "confidence": "<low|medium|high>"
-}"""
+IMPORTANT: Respond with ONLY valid JSON — no markdown, no code fences, no prose before or after.
+Use exactly this schema:
+{"reasoning": "<your step-by-step analysis, 2-5 sentences>", "factors_for": ["<factor 1>", "<factor 2>"], "factors_against": ["<factor 1>", "<factor 2>"], "estimated_probability": <float 0.0 to 1.0>, "confidence": "<low|medium|high>"}"""
 
 
 def market_analysis_prompt(

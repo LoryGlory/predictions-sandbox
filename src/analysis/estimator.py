@@ -86,10 +86,25 @@ class Estimator:
         )
         return self._parse_response(raw, model=self._model)
 
+    @staticmethod
+    def _extract_json(raw: str) -> str:
+        """Strip markdown code fences and leading prose to extract JSON."""
+        import re
+        # Try to extract JSON from ```json ... ``` blocks
+        match = re.search(r"```(?:json)?\s*\n?(\{[^`]*\})\s*\n?```", raw, re.DOTALL)
+        if match:
+            return match.group(1)
+        # Try to find a raw JSON object in the response
+        match = re.search(r"\{[^{}]*\"estimated_probability\"[^{}]*\}", raw, re.DOTALL)
+        if match:
+            return match.group(0)
+        return raw
+
     def _parse_response(self, raw: str, model: str) -> ProbabilityEstimate:
         """Parse Claude's JSON response into a ProbabilityEstimate."""
+        cleaned = self._extract_json(raw)
         try:
-            data: dict[str, Any] = json.loads(raw)
+            data: dict[str, Any] = json.loads(cleaned)
         except json.JSONDecodeError as e:
             raise ValueError(f"Claude returned non-JSON response: {raw[:200]}") from e
 

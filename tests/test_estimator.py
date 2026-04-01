@@ -98,3 +98,27 @@ def test_parse_uses_defaults_for_missing_fields():
     assert result.reasoning == ""
     assert result.factors_for == []
     assert result.factors_against == []
+
+
+# ── JSON extraction tests (handles non-clean Claude responses) ───────────
+
+
+def test_parse_strips_markdown_code_fences():
+    e = make_estimator()
+    wrapped = '```json\n' + valid_response() + '\n```'
+    result = e._parse_response(wrapped, model="claude-test")
+    assert result.estimated_probability == pytest.approx(0.72)
+
+
+def test_parse_extracts_json_from_prose():
+    e = make_estimator()
+    prose = 'Here is my analysis:\n\n' + valid_response() + '\n\nHope that helps!'
+    result = e._parse_response(prose, model="claude-test")
+    assert result.estimated_probability == pytest.approx(0.72)
+
+
+def test_parse_handles_code_fence_without_json_tag():
+    e = make_estimator()
+    wrapped = '```\n' + valid_response() + '\n```'
+    result = e._parse_response(wrapped, model="claude-test")
+    assert result.estimated_probability == pytest.approx(0.72)
