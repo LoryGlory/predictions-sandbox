@@ -9,10 +9,12 @@ without waiting for live markets to resolve.
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 
 from src.analysis.estimator import Estimator, ProbabilityEstimate
+from src.db.connection import get_db
 from src.markets.manifold import ManifoldClient
 from src.tracking.calibration import brier_score, brier_skill_score, mean_brier_score
 
@@ -157,49 +159,98 @@ async def run_backtest(
 
     logger.info("Running backtest on %d resolved markets", len(markets))
 
-    for market in markets:
-        question = market.get("question", "")
-        resolution = market.get("resolution", "")
-        outcome = 1 if resolution == "YES" else 0
-        # Use the probability at resolution time as the market baseline
-        market_price = market.get("probability", 0.5)
+    async with get_db() as db:
+        for market in markets:
+            question = market.get("question", "")
+            resolution = market.get("resolution", "")
+            outcome = 1 if resolution == "YES" else 0
+            external_id = market.get("id", "")
+            # Use the probability at resolution time as the market baseline
+            market_price = market.get("probability", 0.5)
 
-        logger.info("Estimating: %s", question[:60])
-        try:
-            # NOTE: We pass only the question — NOT the resolution —
-            # so Claude can't cheat by reading the outcome.
-            estimate: ProbabilityEstimate = await estimator.estimate(
-                question=question,
-                market_price=None,  # hide market price to get a fully independent estimate
+            # Extract tags for category analysis
+            raw_tags = market.get("groupSlugs") or market.get("tags") or []
+            tags_json = json.dumps(raw_tags) if raw_tags else None
+
+            logger.info("Estimating: %s", question[:60])
+            try:
+                # NOTE: We pass only the question — NOT the resolution —
+                # so Claude can't cheat by reading the outcome.
+                estimate: ProbabilityEstimate = await estimator.estimate(
+                    question=question,
+                    market_price=None,  # hide market price to get a fully independent estimate
+                )
+            except Exception as e:
+                logger.error("Estimation failed for '%s': %s", question[:50], e)
+                continue
+
+            model_brier = brier_score(estimate.estimated_probability, outcome)
+            baseline_brier = brier_score(market_price, outcome)
+
+            report.results.append(
+                BacktestResult(
+                    market_id=external_id,
+                    question=question,
+                    resolution=resolution,
+                    outcome=outcome,
+                    market_price=market_price,
+                    estimated_probability=estimate.estimated_probability,
+                    confidence=estimate.confidence,
+                    reasoning=estimate.reasoning,
+                    model_brier=model_brier,
+                    baseline_brier=baseline_brier,
+                )
             )
-        except Exception as e:
-            logger.error("Estimation failed for '%s': %s", question[:50], e)
-            continue
-
-        model_brier = brier_score(estimate.estimated_probability, outcome)
-        baseline_brier = brier_score(market_price, outcome)
-
-        report.results.append(
-            BacktestResult(
-                market_id=market.get("id", ""),
-                question=question,
-                resolution=resolution,
-                outcome=outcome,
-                market_price=market_price,
-                estimated_probability=estimate.estimated_probability,
-                confidence=estimate.confidence,
-                reasoning=estimate.reasoning,
-                model_brier=model_brier,
-                baseline_brier=baseline_brier,
+            logger.info(
+                "  outcome=%s market=%.1f%% estimate=%.1f%% model_brier=%.4f baseline_brier=%.4f",
+                resolution,
+                market_price * 100,
+                estimate.estimated_probability * 100,
+                model_brier,
+                baseline_brier,
             )
-        )
-        logger.info(
-            "  outcome=%s market=%.1f%% estimate=%.1f%% model_brier=%.4f baseline_brier=%.4f",
-            resolution,
-            market_price * 100,
-            estimate.estimated_probability * 100,
-            model_brier,
-            baseline_brier,
-        )
+
+            # Persist to DB for category analysis
+            await db.execute(
+                """INSERT INTO markets (platform, external_id, question, current_price, tags)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(platform, external_id) DO UPDATE SET
+                       current_price=excluded.current_price,
+                       tags=excluded.tags""",
+                ("manifold", external_id, question, market_price, tags_json),
+            )
+            await db.commit()
+
+            async with db.execute(
+                "SELECT id FROM markets WHERE platform=? AND external_id=?",
+                ("manifold", external_id),
+            ) as cur:
+                row = await cur.fetchone()
+            market_db_id = row["id"]
+
+            await db.execute(
+                """INSERT INTO predictions (market_id, model, estimated_prob, confidence, reasoning)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    market_db_id,
+                    estimate.model,
+                    estimate.estimated_probability,
+                    estimate.confidence,
+                    estimate.reasoning,
+                ),
+            )
+            await db.commit()
+
+            async with db.execute("SELECT last_insert_rowid() as id") as cur:
+                pred_row = await cur.fetchone()
+            prediction_db_id = pred_row["id"]
+
+            await db.execute(
+                """INSERT INTO calibration
+                   (prediction_id, predicted_prob, actual_outcome, brier_score, resolved_at)
+                   VALUES (?, ?, ?, ?, datetime('now'))""",
+                (prediction_db_id, estimate.estimated_probability, outcome, model_brier),
+            )
+            await db.commit()
 
     return report
