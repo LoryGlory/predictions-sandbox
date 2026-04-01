@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Trades{% endblock %}
+{% block content %}
+<h1>Trades</h1>
+
+<div class="stat-grid">
+    <article class="stat-card">
+        <h3>{{ summary.total }}</h3>
+        <small>Total trades</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ "%.0f%%"|format(summary.win_rate * 100) }}</h3>
+        <small>Win rate</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ "%.2f"|format(summary.total_pnl) }}</h3>
+        <small>Total P&L</small>
+    </article>
+</div>
+
+{% if trades %}
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Market</th>
+            <th>Direction</th>
+            <th>Size</th>
+            <th>Entry</th>
+            <th>P&L</th>
+            <th>Paper</th>
+            <th>Time</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in trades %}
+        <tr>
+            <td><a href="/markets/{{ t.market_id }}">{{ t.question[:50] }}{% if t.question|length > 50 %}…{% endif %}</a></td>
+            <td>{{ t.direction }}</td>
+            <td>{{ "%.2f"|format(t.size) }}</td>
+            <td>{{ t.entry_price|pct }}</td>
+            <td>{{ "%.2f"|format(t.pnl) if t.pnl else "—" }}</td>
+            <td>{{ "Yes" if t.is_paper else "No" }}</td>
+            <td>{{ t.timestamp[:16] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+
+{% if total_pages > 1 %}
+<nav>
+    <ul>
+        <li>{% if page > 1 %}<a href="?page={{ page - 1 }}">Previous</a>{% endif %}</li>
+        <li>Page {{ page }} of {{ total_pages }}</li>
+        <li>{% if page < total_pages %}<a href="?page={{ page + 1 }}">Next</a>{% endif %}</li>
+    </ul>
+</nav>
+{% endif %}
+{% else %}
+<p>No trades yet. Pipeline is in calibration mode (BUDGET_DAILY_LIMIT=0).</p>
+{% endif %}
+{% endblock %}

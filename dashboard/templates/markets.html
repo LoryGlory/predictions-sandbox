@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Markets{% endblock %}
+{% block content %}
+<h1>Markets <small>({{ total }})</small></h1>
+
+{% if markets %}
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Question</th>
+            <th>Price</th>
+            <th>Predictions</th>
+            <th>Last Updated</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for m in markets %}
+        <tr>
+            <td><a href="/markets/{{ m.id }}">{{ m.question[:70] }}{% if m.question|length > 70 %}…{% endif %}</a></td>
+            <td>{{ m.current_price|pct }}</td>
+            <td>{{ m.prediction_count }}</td>
+            <td>{{ m.last_updated[:16] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+
+{% if total_pages > 1 %}
+<nav>
+    <ul>
+        <li>{% if page > 1 %}<a href="?page={{ page - 1 }}">Previous</a>{% endif %}</li>
+        <li>Page {{ page }} of {{ total_pages }}</li>
+        <li>{% if page < total_pages %}<a href="?page={{ page + 1 }}">Next</a>{% endif %}</li>
+    </ul>
+</nav>
+{% endif %}
+{% else %}
+<p>No markets tracked yet.</p>
+{% endif %}
+{% endblock %}

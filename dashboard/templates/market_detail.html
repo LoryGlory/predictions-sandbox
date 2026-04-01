@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ market.question[:50] if market else "Not Found" }}{% endblock %}
+{% block content %}
+{% if market %}
+<h1>{{ market.question }}</h1>
+
+<dl>
+    <dt>Platform</dt>
+    <dd>{{ market.platform }}</dd>
+    <dt>Current Price</dt>
+    <dd>{{ market.current_price|pct }}</dd>
+    <dt>Last Updated</dt>
+    <dd>{{ market.last_updated }}</dd>
+    {% if market.tag_list %}
+    <dt>Tags</dt>
+    <dd>{% for tag in market.tag_list %}<span class="tag">{{ tag }}</span>{% endfor %}</dd>
+    {% endif %}
+</dl>
+
+<h2>Predictions ({{ market.predictions|length }})</h2>
+{% if market.predictions %}
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Estimate</th>
+            <th>Confidence</th>
+            <th>Outcome</th>
+            <th>Brier</th>
+            <th>Time</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in market.predictions %}
+        <tr>
+            <td>{{ p.estimated_prob|pct }}</td>
+            <td>{{ p.confidence or "—" }}</td>
+            <td>{% if p.actual_outcome is not none %}{{ "YES" if p.actual_outcome == 1 else "NO" }}{% else %}—{% endif %}</td>
+            <td>{{ p.brier_score|brier if p.brier_score is not none else "—" }}</td>
+            <td>{{ p.timestamp[:16] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+
+{% for p in market.predictions %}
+{% if p.reasoning %}
+<details>
+    <summary>Reasoning — {{ p.timestamp[:16] }} ({{ p.estimated_prob|pct }})</summary>
+    <pre style="white-space: pre-wrap;">{{ p.reasoning }}</pre>
+</details>
+{% endif %}
+{% endfor %}
+{% else %}
+<p>No predictions for this market yet.</p>
+{% endif %}
+
+{% if market.trades %}
+<h2>Trades ({{ market.trades|length }})</h2>
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Direction</th>
+            <th>Size</th>
+            <th>Entry</th>
+            <th>Exit</th>
+            <th>P&L</th>
+            <th>Paper</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in market.trades %}
+        <tr>
+            <td>{{ t.direction }}</td>
+            <td>{{ "%.2f"|format(t.size) }}</td>
+            <td>{{ t.entry_price|pct }}</td>
+            <td>{{ t.exit_price|pct if t.exit_price else "—" }}</td>
+            <td>{{ "%.2f"|format(t.pnl) if t.pnl else "—" }}</td>
+            <td>{{ "Yes" if t.is_paper else "No" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% endif %}
+
+{% else %}
+<h1>Market not found</h1>
+<p><a href="/markets">Back to markets</a></p>
+{% endif %}
+{% endblock %}

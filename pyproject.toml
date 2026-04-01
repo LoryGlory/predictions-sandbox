@@ -26,6 +26,7 @@ dev = [
 dashboard = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.29.0",
+    "jinja2>=3.1.0",
 ]
 
 [tool.pytest.ini_options]
@@ -34,7 +35,7 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "config*"]
+include = ["src*", "config*", "dashboard*"]
 
 [tool.ruff]
 target-version = "py311"

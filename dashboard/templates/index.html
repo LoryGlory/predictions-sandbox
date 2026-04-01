@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<h1>Pipeline Overview</h1>
+
+<div class="stat-grid">
+    <article class="stat-card">
+        <h3>{{ total_markets }}</h3>
+        <small>Markets tracked</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ total_predictions }}</h3>
+        <small>Total predictions</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ predictions_today }}</h3>
+        <small>Predictions today</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ total_trades }}</h3>
+        <small>Trades</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ mean_brier|brier if mean_brier else "—" }}</h3>
+        <small>Mean Brier</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ cost_today|usd }}</h3>
+        <small>Cost today</small>
+    </article>
+</div>
+
+<h2>Recent Predictions</h2>
+{% if recent_predictions %}
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Market</th>
+            <th>Estimate</th>
+            <th>Market Price</th>
+            <th>Edge</th>
+            <th>Time</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in recent_predictions %}
+        <tr>
+            <td><a href="/markets/{{ p.market_id }}">{{ p.question[:60] }}{% if p.question|length > 60 %}…{% endif %}</a></td>
+            <td>{{ p.estimated_prob|pct }}</td>
+            <td>{{ p.current_price|pct }}</td>
+            <td class="{{ 'edge-pos' if (p.estimated_prob - p.current_price)|abs > 0.05 and p.estimated_prob > p.current_price else 'edge-neg' if (p.estimated_prob - p.current_price)|abs > 0.05 else '' }}">
+                {{ ((p.estimated_prob - p.current_price) * 100)|round(1) }}%
+            </td>
+            <td>{{ p.timestamp[:16] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% else %}
+<p>No predictions yet. Run the pipeline to start collecting data.</p>
+{% endif %}
+{% endblock %}

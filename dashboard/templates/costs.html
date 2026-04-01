@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}API Costs{% endblock %}
+{% block content %}
+<h1>API Costs</h1>
+
+<div class="stat-grid">
+    <article class="stat-card">
+        <h3>{{ total_cost|usd }}</h3>
+        <small>Total spend</small>
+    </article>
+    {% if cost_log %}
+    <article class="stat-card">
+        <h3>{{ (total_cost / cost_log|length)|usd }}</h3>
+        <small>Daily average</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ cost_log[0].calls if cost_log else 0 }}</h3>
+        <small>Calls today</small>
+    </article>
+    {% endif %}
+</div>
+
+{% if cost_log %}
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>API Calls</th>
+            <th>Est. Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in cost_log %}
+        <tr>
+            <td>{{ row.date }}</td>
+            <td>{{ row.calls }}</td>
+            <td>{{ row.est_cost_usd|usd }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% else %}
+<p>No API costs recorded yet.</p>
+{% endif %}
+{% endblock %}

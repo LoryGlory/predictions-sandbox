@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Calibration{% endblock %}
+{% block content %}
+<h1>Calibration</h1>
+
+{% if resolved_count and resolved_count > 0 %}
+<div class="stat-grid">
+    <article class="stat-card">
+        <h3>{{ resolved_count }}</h3>
+        <small>Resolved predictions</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ mean_brier|brier }}</h3>
+        <small>Claude Brier</small>
+    </article>
+    <article class="stat-card">
+        <h3>{{ market_brier|brier }}</h3>
+        <small>Market Brier</small>
+    </article>
+    <article class="stat-card">
+        <h3 style="{{ skill_score|skill_color }}">{{ "%+.2f"|format(skill_score) if skill_score is not none else "—" }}</h3>
+        <small>Skill Score</small>
+    </article>
+</div>
+
+{% if buckets %}
+<h2>Calibration Buckets</h2>
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Bucket</th>
+            <th>Count</th>
+            <th>Mean Predicted</th>
+            <th>Actual Rate</th>
+            <th>Difference</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for b in buckets %}
+        <tr>
+            <td>{{ b.label }}</td>
+            <td>{{ b.count }}</td>
+            <td>{{ b.mean_predicted|pct }}</td>
+            <td>{{ b.actual_rate|pct }}</td>
+            <td class="{{ 'edge-pos' if (b.actual_rate - b.mean_predicted)|abs < 0.1 else 'edge-neg' }}">
+                {{ "%+.1f%%"|format((b.actual_rate - b.mean_predicted) * 100) }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% endif %}
+
+{% if categories %}
+<h2>Per-Category Breakdown</h2>
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Category</th>
+            <th>N</th>
+            <th>Claude</th>
+            <th>Market</th>
+            <th>Skill</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in categories %}
+        <tr>
+            <td>{{ c.category }}</td>
+            <td>{{ c.count }}</td>
+            <td>{{ c.mean_brier|brier }}</td>
+            <td>{{ c.market_brier|brier }}</td>
+            <td style="{{ c.skill_score|skill_color }}">{{ "%+.2f"|format(c.skill_score) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% endif %}
+
+{% else %}
+<p>No resolved predictions yet. Run the backtest or wait for live markets to resolve.</p>
+{% endif %}
+{% endblock %}
