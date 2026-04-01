@@ -23,7 +23,7 @@ from src.analysis.estimator import Estimator
 from src.db.connection import get_db
 from src.markets.manifold import ManifoldClient
 from src.markets.scanner import filter_markets
-from src.notifications.telegram import notify_cycle_summary, notify_error
+from src.notifications.telegram import notify_error
 from src.tracking.logger import setup_logging
 from src.trading.executor import TradeExecutor
 from src.trading.kelly import kelly_bet_size
@@ -37,10 +37,6 @@ COST_PER_ESTIMATE_USD = 0.003
 async def run_cycle() -> None:
     setup_logging()
     logger.info("Starting pipeline cycle")
-
-    estimates_made = 0
-    trades_made = 0
-    high_edge_markets: list[dict] = []
 
     try:
         guardian = BudgetGuardian.from_settings()
@@ -113,8 +109,6 @@ async def run_cycle() -> None:
                     logger.error("Estimation failed for %s: %s", question[:60], e)
                     continue
 
-                estimates_made += 1
-
                 # Log prediction
                 await db.execute(
                     """INSERT INTO predictions (market_id, model, estimated_prob, confidence, reasoning)
@@ -146,14 +140,6 @@ async def run_cycle() -> None:
 
                 # Compute bet size
                 edge = estimate.estimated_probability - market_price
-                if abs(edge) >= 0.15:
-                    high_edge_markets.append({
-                        "question": question,
-                        "edge": edge,
-                        "estimate": estimate.estimated_probability,
-                        "market_price": market_price,
-                    })
-
                 if abs(edge) < settings.min_edge_threshold:
                     logger.debug("No edge on %s (edge=%.3f)", question[:40], edge)
                     continue
@@ -181,7 +167,6 @@ async def run_cycle() -> None:
                 )
 
                 if trade:
-                    trades_made += 1
                     await db.execute(
                         """INSERT INTO trades
                            (market_id, prediction_id, direction, size, entry_price, is_paper)
@@ -197,12 +182,6 @@ async def run_cycle() -> None:
                     )
                     await db.commit()
 
-        await notify_cycle_summary(
-            markets_scanned=len(candidates),
-            estimates_made=estimates_made,
-            trades_made=trades_made,
-            high_edge_markets=high_edge_markets or None,
-        )
         logger.info("Cycle complete")
 
     except Exception as e:
