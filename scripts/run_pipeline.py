@@ -92,9 +92,11 @@ async def run_cycle() -> None:
                     last_pred = await cur.fetchone()
 
                 if last_pred:
+                    last_ts = datetime.fromisoformat(last_pred["timestamp"])
+                    if last_ts.tzinfo is None:
+                        last_ts = last_ts.replace(tzinfo=timezone.utc)
                     hours_since = (
-                        datetime.now(timezone.utc) -
-                        datetime.fromisoformat(last_pred["timestamp"].replace("Z", "+00:00"))
+                        datetime.now(timezone.utc) - last_ts
                     ).total_seconds() / 3600
                     price_moved = abs(market_price - last_pred["estimated_prob"])
                     if hours_since < 4 and price_moved < 0.03:
