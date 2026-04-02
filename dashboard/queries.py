@@ -45,7 +45,7 @@ async def get_overview_stats() -> dict:
 
         # Recent predictions
         async with db.execute(
-            """SELECT p.estimated_prob, p.confidence, p.timestamp,
+            """SELECT p.estimated_prob, p.market_price, p.confidence, p.timestamp,
                       m.question, m.current_price, m.id as market_id
                FROM predictions p
                JOIN markets m ON p.market_id = m.id
@@ -125,10 +125,12 @@ async def get_calibration_overview() -> dict:
             result["resolved_count"] = row["cnt"]
             result["mean_brier"] = row["mean_brier"]
 
-        # Market baseline Brier
+        # Market baseline Brier — use price at prediction time, not current
         async with db.execute(
-            """SELECT AVG((m.current_price - c.actual_outcome) * (m.current_price - c.actual_outcome))
-                      as market_brier
+            """SELECT AVG(
+                   (COALESCE(p.market_price, m.current_price) - c.actual_outcome)
+                   * (COALESCE(p.market_price, m.current_price) - c.actual_outcome)
+               ) as market_brier
                FROM calibration c
                JOIN predictions p ON c.prediction_id = p.id
                JOIN markets m ON p.market_id = m.id
@@ -184,7 +186,7 @@ async def get_category_stats(min_count: int = 3) -> list[dict]:
     async with get_db(read_only=True) as db:
         async with db.execute(
             """SELECT c.brier_score, c.actual_outcome,
-                      m.tags, m.current_price
+                      m.tags, m.current_price, p.market_price
                FROM calibration c
                JOIN predictions p ON c.prediction_id = p.id
                JOIN markets m ON p.market_id = m.id
@@ -201,9 +203,10 @@ async def get_category_stats(min_count: int = 3) -> list[dict]:
         tags_raw = row["tags"]
         tags: list[str] = json.loads(tags_raw) if tags_raw else ["uncategorized"]
 
+        market_px = row["market_price"] if row["market_price"] is not None else row["current_price"]
         entry = {
             "brier": row["brier_score"],
-            "market_brier": (row["current_price"] - row["actual_outcome"]) ** 2,
+            "market_brier": (market_px - row["actual_outcome"]) ** 2,
         }
         for tag in tags:
             category_data.setdefault(tag, []).append(entry)

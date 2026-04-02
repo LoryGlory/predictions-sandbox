@@ -24,6 +24,8 @@
     <thead>
         <tr>
             <th>Estimate</th>
+            <th>Market Price</th>
+            <th>Edge</th>
             <th>Confidence</th>
             <th>Outcome</th>
             <th>Brier</th>
@@ -34,6 +36,8 @@
         {% for p in market.predictions %}
         <tr>
             <td>{{ p.estimated_prob|pct }}</td>
+            <td>{{ p.market_price|pct if p.market_price is not none else "—" }}</td>
+            <td>{% if p.market_price is not none %}{{ ((p.estimated_prob - p.market_price) * 100)|round(1) }}%{% else %}—{% endif %}</td>
             <td>{{ p.confidence or "—" }}</td>
             <td>{% if p.actual_outcome is not none %}{{ "YES" if p.actual_outcome == 1 else "NO" }}{% else %}—{% endif %}</td>
             <td>{{ p.brier_score|brier if p.brier_score is not none else "—" }}</td>
