@@ -236,12 +236,13 @@ async def run_backtest(
             market_db_id = row["id"]
 
             await db.execute(
-                """INSERT INTO predictions (market_id, model, estimated_prob, confidence, reasoning)
-                   VALUES (?, ?, ?, ?, ?)""",
+                """INSERT INTO predictions (market_id, model, estimated_prob, market_price, confidence, reasoning)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (
                     market_db_id,
                     estimate.model,
                     estimate.estimated_probability,
+                    market_price,
                     estimate.confidence,
                     estimate.reasoning,
                 ),

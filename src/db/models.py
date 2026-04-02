@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     market_id       INTEGER NOT NULL REFERENCES markets(id),
     model           TEXT    NOT NULL,
     estimated_prob  REAL    NOT NULL,
+    market_price    REAL,
     confidence      TEXT,
     reasoning       TEXT,
     timestamp       TEXT    NOT NULL DEFAULT (datetime('now'))

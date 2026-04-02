@@ -80,23 +80,23 @@ async def run_cycle() -> None:
 
                 # Check if we estimated this market recently and price hasn't moved much
                 async with db.execute(
-                    """SELECT estimated_prob, timestamp FROM predictions
+                    """SELECT market_price, timestamp FROM predictions
                        WHERE market_id = ?
                        ORDER BY timestamp DESC LIMIT 1""",
                     (market_db_id,),
                 ) as cur:
                     last_pred = await cur.fetchone()
 
-                if last_pred:
+                if last_pred and last_pred["market_price"] is not None:
                     last_ts = datetime.fromisoformat(last_pred["timestamp"])
                     if last_ts.tzinfo is None:
                         last_ts = last_ts.replace(tzinfo=timezone.utc)
                     hours_since = (
                         datetime.now(timezone.utc) - last_ts
                     ).total_seconds() / 3600
-                    price_moved = abs(market_price - last_pred["estimated_prob"])
+                    price_moved = abs(market_price - last_pred["market_price"])
                     if hours_since < 4 and price_moved < 0.03:
-                        logger.debug(
+                        logger.info(
                             "Skipping %s — estimated %.1fh ago, price moved %.1f%%",
                             question[:40], hours_since, price_moved * 100,
                         )
@@ -111,12 +111,13 @@ async def run_cycle() -> None:
 
                 # Log prediction
                 await db.execute(
-                    """INSERT INTO predictions (market_id, model, estimated_prob, confidence, reasoning)
-                       VALUES (?, ?, ?, ?, ?)""",
+                    """INSERT INTO predictions (market_id, model, estimated_prob, market_price, confidence, reasoning)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
                     (
                         market_db_id,
                         estimate.model,
                         estimate.estimated_probability,
+                        market_price,
                         estimate.confidence,
                         estimate.reasoning,
                     ),
