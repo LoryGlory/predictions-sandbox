@@ -78,6 +78,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}.timer"
 sudo systemctl start "${SERVICE_NAME}.timer"
 
+# ── Nightly calibration report cron ─────────────────────────
+echo "[6/6] Setting up nightly calibration report cron..."
+CRON_CMD="0 2 * * * cd $REPO_DIR && $PYTHON scripts/nightly_calibration.py >> /var/log/prediction-nightly.log 2>&1"
+(crontab -l 2>/dev/null | grep -v "nightly_calibration.py"; echo "$CRON_CMD") | crontab -
+
 echo ""
 echo "=== Setup complete! ==="
 echo ""
