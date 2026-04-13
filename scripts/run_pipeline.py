@@ -409,7 +409,8 @@ async def run_cycle() -> None:
 
         # ── Polymarket paper trading ──────────────────────────────────────
         if settings.polymarket_enabled:
-            await _run_polymarket_cycle(db, estimator, executor, guardian)
+            async with get_db() as poly_db:
+                await _run_polymarket_cycle(poly_db, estimator, executor, guardian)
 
         logger.info("Cycle complete")
 
