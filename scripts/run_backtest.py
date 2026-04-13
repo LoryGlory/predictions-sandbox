@@ -25,6 +25,17 @@ def parse_args() -> argparse.Namespace:
         default=20,
         help="Number of resolved markets to test against (default: 20)",
     )
+    parser.add_argument(
+        "--prompt-version",
+        type=str,
+        default=None,
+        help="Prompt version to use (v1_baseline / v2_market_aware). Default: use active version.",
+    )
+    parser.add_argument(
+        "--with-market-price",
+        action="store_true",
+        help="Pass market price to estimator (tests v2 Bayesian prior).",
+    )
     return parser.parse_args()
 
 
@@ -33,8 +44,17 @@ async def main() -> None:
     args = parse_args()
     logger = logging.getLogger(__name__)
 
-    logger.info("Starting backtest with %d markets", args.count)
-    report = await run_backtest(count=args.count)
+    logger.info(
+        "Starting backtest with %d markets (prompt=%s, market_price=%s)",
+        args.count,
+        args.prompt_version or "active",
+        args.with_market_price,
+    )
+    report = await run_backtest(
+        count=args.count,
+        prompt_version=args.prompt_version,
+        with_market_price=args.with_market_price,
+    )
     report.print_report()
 
     if report.count == 0:

@@ -139,12 +139,16 @@ async def fetch_resolved_markets(
 async def run_backtest(
     count: int = 20,
     estimator: Estimator | None = None,
+    prompt_version: str | None = None,
+    with_market_price: bool = False,
 ) -> BacktestReport:
     """Run a backtest against resolved Manifold markets.
 
     Args:
         count: Number of resolved markets to test against.
         estimator: Estimator instance. Created from settings if not provided.
+        prompt_version: Override prompt version (e.g. "v1_baseline", "v2_market_aware").
+        with_market_price: If True, pass market price to estimator (tests Bayesian prior).
 
     Returns:
         BacktestReport with per-market results and aggregate metrics.
@@ -185,7 +189,8 @@ async def run_backtest(
                 # so Claude can't cheat by reading the outcome.
                 estimate: ProbabilityEstimate = await estimator.estimate(
                     question=question,
-                    market_price=None,  # hide market price to get a fully independent estimate
+                    market_price=market_price if with_market_price else None,
+                    prompt_version=prompt_version,
                 )
             except Exception as e:
                 logger.error("Estimation failed for '%s': %s", question[:50], e)
@@ -236,8 +241,9 @@ async def run_backtest(
             market_db_id = row["id"]
 
             await db.execute(
-                """INSERT INTO predictions (market_id, model, estimated_prob, market_price, confidence, reasoning)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO predictions
+                   (market_id, model, estimated_prob, market_price, confidence, reasoning, prompt_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     market_db_id,
                     estimate.model,
@@ -245,6 +251,7 @@ async def run_backtest(
                     market_price,
                     estimate.confidence,
                     estimate.reasoning,
+                    estimate.prompt_version or prompt_version,
                 ),
             )
             await db.commit()
