@@ -20,9 +20,11 @@ from datetime import datetime, timezone
 
 from config.settings import settings
 from src.analysis.estimator import Estimator
+from src.content.story_collector import check_big_edge, check_cost_milestone
 from src.db.connection import get_db
 from src.markets.manifold import ManifoldClient
-from src.markets.scanner import filter_markets
+from src.markets.polymarket import PolymarketClient
+from src.markets.scanner import filter_markets, filter_polymarket_markets
 from src.notifications.telegram import notify_error
 from src.tracking.logger import setup_logging
 from src.trading.executor import TradeExecutor
@@ -32,6 +34,153 @@ from src.trading.risk import BudgetGuardian
 logger = logging.getLogger(__name__)
 
 COST_PER_ESTIMATE_USD = 0.003
+
+
+async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
+    """Run Polymarket paper trading — same estimator and budget as Manifold."""
+    logger.info("Starting Polymarket paper trading cycle")
+
+    try:
+        async with PolymarketClient() as poly:
+            raw_markets = await poly.get_markets(limit=settings.max_markets_per_cycle * 3)
+    except Exception as e:
+        logger.error("Polymarket fetch failed: %s", e)
+        return
+
+    candidates = filter_polymarket_markets(raw_markets, limit=settings.max_markets_per_cycle)
+    logger.info("Polymarket: %d tradeable markets", len(candidates))
+
+    for market in candidates:
+        question = market.get("question", "")
+        # Polymarket uses outcomePrices or price fields
+        market_price = float(market.get("outcomePrices", [0.5, 0.5])[0])
+        external_id = str(market.get("id", market.get("condition_id", "")))
+        tags = market.get("tags", [])
+        tags_json = json.dumps(tags) if tags else None
+
+        # Upsert market record
+        await db.execute(
+            """INSERT INTO markets (platform, external_id, question, current_price, tags)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(platform, external_id) DO UPDATE SET
+                   current_price=excluded.current_price,
+                   tags=excluded.tags,
+                   last_updated=datetime('now')""",
+            ("polymarket", external_id, question, market_price, tags_json),
+        )
+        await db.commit()
+
+        async with db.execute(
+            "SELECT id FROM markets WHERE platform=? AND external_id=?",
+            ("polymarket", external_id),
+        ) as cur:
+            row = await cur.fetchone()
+        market_db_id = row["id"]
+
+        # Dedup check
+        async with db.execute(
+            """SELECT market_price, timestamp FROM predictions
+               WHERE market_id = ? ORDER BY timestamp DESC LIMIT 1""",
+            (market_db_id,),
+        ) as cur:
+            last_pred = await cur.fetchone()
+
+        if last_pred and last_pred["market_price"] is not None:
+            last_ts = datetime.fromisoformat(last_pred["timestamp"])
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=timezone.utc)
+            hours_since = (datetime.now(timezone.utc) - last_ts).total_seconds() / 3600
+            price_moved = abs(market_price - last_pred["market_price"])
+            if hours_since < 4 and price_moved < 0.03:
+                continue
+
+        # API budget check
+        async with db.execute(
+            "SELECT est_cost_usd FROM api_cost_log WHERE date = date('now')",
+        ) as cur:
+            cost_row = await cur.fetchone()
+        if (cost_row and cost_row["est_cost_usd"] or 0) >= settings.daily_api_budget:
+            logger.warning("Daily API budget exhausted — skipping Polymarket")
+            break
+
+        category = tags[0] if tags else None
+        try:
+            estimate = await estimator.estimate(
+                question, market_price=market_price, category=category,
+            )
+        except Exception as e:
+            logger.error("Polymarket estimation failed for %s: %s", question[:60], e)
+            continue
+
+        # Log prediction
+        await db.execute(
+            """INSERT INTO predictions
+               (market_id, model, estimated_prob, market_price, confidence, reasoning, prompt_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                market_db_id, estimate.model, estimate.estimated_probability,
+                market_price, estimate.confidence, estimate.reasoning,
+                estimate.prompt_version,
+            ),
+        )
+        await db.commit()
+
+        # Track API cost
+        await db.execute(
+            """INSERT INTO api_cost_log (date, calls, est_cost_usd)
+               VALUES (date('now'), 1, ?)
+               ON CONFLICT(date) DO UPDATE SET
+                   calls = calls + 1,
+                   est_cost_usd = est_cost_usd + excluded.est_cost_usd""",
+            (COST_PER_ESTIMATE_USD,),
+        )
+        await db.commit()
+
+        async with db.execute("SELECT last_insert_rowid() as id") as cur:
+            pred_row = await cur.fetchone()
+        prediction_db_id = pred_row["id"]
+
+        # Compute edge and trade
+        edge = estimate.estimated_probability - market_price
+        if abs(edge) < settings.min_edge_threshold:
+            continue
+
+        direction = "yes" if edge > 0 else "no"
+        prob_for_direction = (
+            estimate.estimated_probability if direction == "yes"
+            else 1 - estimate.estimated_probability
+        )
+        price_for_direction = market_price if direction == "yes" else 1 - market_price
+
+        bet = kelly_bet_size(
+            our_prob=prob_for_direction,
+            market_price=price_for_direction,
+            bankroll=guardian.total_limit,
+            kelly_fraction_multiplier=settings.kelly_fraction,
+            max_position_pct=0.05,
+        )
+
+        # Use ask price for realistic execution simulation
+        trade = await executor.execute(
+            market=market,
+            direction=direction,
+            bet_size=bet,
+            prediction_id=prediction_db_id,
+            platform="polymarket",
+        )
+
+        if trade:
+            await db.execute(
+                """INSERT INTO trades
+                   (market_id, prediction_id, direction, size, entry_price, is_paper)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    market_db_id, prediction_db_id,
+                    trade["direction"], trade["size"], trade["entry_price"],
+                    trade["is_paper"],
+                ),
+            )
+            await db.commit()
 
 
 async def run_cycle() -> None:
@@ -102,17 +251,41 @@ async def run_cycle() -> None:
                         )
                         continue
 
+                # Check daily API budget before calling Claude
+                async with db.execute(
+                    "SELECT est_cost_usd FROM api_cost_log WHERE date = date('now')",
+                ) as cur:
+                    cost_row = await cur.fetchone()
+                daily_cost = cost_row["est_cost_usd"] if cost_row else 0.0
+                if daily_cost >= settings.daily_api_budget:
+                    logger.warning(
+                        "Daily API budget exhausted ($%.2f / $%.2f) — skipping remaining markets",
+                        daily_cost, settings.daily_api_budget,
+                    )
+                    break
+                if daily_cost >= settings.daily_api_budget * 0.8:
+                    logger.warning(
+                        "Approaching daily API budget: $%.2f / $%.2f",
+                        daily_cost, settings.daily_api_budget,
+                    )
+
+                # Extract category for prompt hints
+                category = (raw_tags[0] if raw_tags else None)
+
                 # Get Claude's estimate
                 try:
-                    estimate = await estimator.estimate(question, market_price=market_price)
+                    estimate = await estimator.estimate(
+                        question, market_price=market_price, category=category,
+                    )
                 except Exception as e:
                     logger.error("Estimation failed for %s: %s", question[:60], e)
                     continue
 
                 # Log prediction
                 await db.execute(
-                    """INSERT INTO predictions (market_id, model, estimated_prob, market_price, confidence, reasoning)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO predictions
+                       (market_id, model, estimated_prob, market_price, confidence, reasoning, prompt_version)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (
                         market_db_id,
                         estimate.model,
@@ -120,9 +293,40 @@ async def run_cycle() -> None:
                         market_price,
                         estimate.confidence,
                         estimate.reasoning,
+                        estimate.prompt_version,
                     ),
                 )
                 await db.commit()
+
+                # A/B test: run both prompt versions on ~10% of markets
+                if estimator.should_ab_test():
+                    alt_version = (
+                        "v1_baseline" if estimate.prompt_version == "v2_market_aware"
+                        else "v2_market_aware"
+                    )
+                    try:
+                        alt_estimate = await estimator.estimate(
+                            question, market_price=market_price,
+                            category=category, prompt_version=alt_version,
+                        )
+                        await db.execute(
+                            """INSERT INTO predictions
+                               (market_id, model, estimated_prob, market_price, confidence, reasoning, prompt_version)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                market_db_id,
+                                alt_estimate.model,
+                                alt_estimate.estimated_probability,
+                                market_price,
+                                alt_estimate.confidence,
+                                alt_estimate.reasoning,
+                                alt_estimate.prompt_version,
+                            ),
+                        )
+                        await db.commit()
+                        logger.info("A/B test: %s on '%s'", alt_version, question[:40])
+                    except Exception as e:
+                        logger.warning("A/B test estimate failed: %s", e)
 
                 # Track API cost
                 await db.execute(
@@ -138,6 +342,15 @@ async def run_cycle() -> None:
                 async with db.execute("SELECT last_insert_rowid() as id") as cur:
                     pred_row = await cur.fetchone()
                 prediction_db_id = pred_row["id"]
+
+                # Capture stories for blog content
+                await check_big_edge(db, {
+                    "estimated_prob": estimate.estimated_probability,
+                    "market_price": market_price,
+                    "reasoning": estimate.reasoning,
+                    "prompt_version": estimate.prompt_version,
+                }, {"question": question})
+                await check_cost_milestone(db)
 
                 # Compute bet size
                 edge = estimate.estimated_probability - market_price
@@ -182,6 +395,10 @@ async def run_cycle() -> None:
                         ),
                     )
                     await db.commit()
+
+        # ── Polymarket paper trading ──────────────────────────────────────
+        if settings.polymarket_enabled:
+            await _run_polymarket_cycle(db, estimator, executor, guardian)
 
         logger.info("Cycle complete")
 

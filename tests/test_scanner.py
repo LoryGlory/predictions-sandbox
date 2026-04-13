@@ -1,16 +1,22 @@
 """Unit tests for market scanner filter logic."""
 import time
+from unittest.mock import patch
 
-from src.markets.scanner import filter_markets, get_tags, is_tradeable
+from src.markets.scanner import check_category, filter_markets, get_tags, is_tradeable
 
 
 def binary_market(**kwargs):
-    """Helper to build a minimal binary market dict."""
+    """Helper to build a minimal binary market dict.
+
+    Includes a whitelisted category tag by default so markets pass category
+    filtering. Override groupSlugs to test category logic specifically.
+    """
     base = {
         "outcomeType": "BINARY",
         "isResolved": False,
         "probability": 0.5,
         "closeTime": int((time.time() + 7 * 24 * 3600) * 1000),  # 7 days from now
+        "groupSlugs": ["fun"],  # whitelisted by default
     }
     base.update(kwargs)
     return base
@@ -122,9 +128,9 @@ def test_rejects_sports_betting():
     )) is False
 
 
-def test_accepts_market_without_no_edge_tags():
+def test_accepts_market_with_whitelisted_tags():
     assert is_tradeable(binary_market(
-        question="Will AI pass the bar exam?", groupSlugs=["technology", "ai"]
+        question="Will AI pass the bar exam?", groupSlugs=["fun", "competitive-gaming"]
     )) is True
 
 
@@ -144,3 +150,88 @@ def test_get_tags_fallback_to_tags_field():
 def test_get_tags_empty_when_none():
     market = {"outcomeType": "BINARY"}
     assert get_tags(market) == []
+
+
+# ── Category whitelist/blacklist filter tests ────────────────────────────
+
+
+def _mock_settings(**overrides):
+    """Patch settings for category filter tests."""
+    from config.settings import Settings
+    defaults = {
+        "category_filter_enabled": True,
+        "anthropic_api_key": "",
+        "manifold_api_key": "",
+        "budget_daily_limit": 0,
+        "budget_total_limit": 50,
+        "kelly_fraction": 0.25,
+        "min_edge_threshold": 0.05,
+        "max_position_pct": 0.05,
+        "model": "claude-sonnet-4-6",
+        "poll_interval_seconds": 1800,
+        "max_markets_per_cycle": 20,
+        "log_level": "INFO",
+        "telegram_bot_token": "",
+        "telegram_chat_id": "",
+        "db_path": "predictions.db",
+        "daily_api_budget": 3.0,
+    }
+    defaults.update(overrides)
+    return Settings(**defaults)
+
+
+def test_category_filter_rejects_blacklisted():
+    market = binary_market(groupSlugs=["metamarkets", "fun"])
+    passes, reason = check_category(market)
+    assert not passes
+    assert "blacklisted" in reason
+
+
+def test_category_filter_rejects_untagged():
+    market = binary_market(groupSlugs=[])  # explicitly no tags
+    passes, reason = check_category(market)
+    assert not passes
+    assert "no category tags" in reason
+
+
+def test_category_filter_rejects_non_whitelisted():
+    market = binary_market(groupSlugs=["some-random-category"])
+    passes, reason = check_category(market)
+    assert not passes
+    assert "no whitelisted category" in reason
+
+
+def test_category_filter_passes_whitelisted():
+    market = binary_market(groupSlugs=["competitive-gaming", "fun"])
+    passes, reason = check_category(market)
+    assert passes
+    assert reason == ""
+
+
+def test_category_filter_disabled_passes_all():
+    with patch("src.markets.scanner.settings", _mock_settings(category_filter_enabled=False)):
+        market = binary_market(groupSlugs=["metamarkets"])
+        passes, _ = check_category(market)
+        assert passes
+
+
+def test_category_filter_disabled_passes_untagged():
+    with patch("src.markets.scanner.settings", _mock_settings(category_filter_enabled=False)):
+        market = binary_market()
+        passes, _ = check_category(market)
+        assert passes
+
+
+def test_is_tradeable_respects_category_filter():
+    """Whitelisted market passes; non-whitelisted market is rejected."""
+    whitelisted = binary_market(
+        question="Will I finish my goal?",
+        groupSlugs=["personal-goals"],
+    )
+    assert is_tradeable(whitelisted) is True
+
+    non_whitelisted = binary_market(
+        question="Some random question?",
+        groupSlugs=["obscure-category"],
+    )
+    assert is_tradeable(non_whitelisted) is False

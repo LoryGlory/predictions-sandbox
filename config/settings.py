@@ -10,6 +10,41 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _parse_bool(val: str) -> bool:
+    return val.strip().lower() in ("true", "1", "yes")
+
+
+# Categories where Claude has proven edge (backtest-derived, 2026-04-01)
+CATEGORY_WHITELIST: list[str] = [
+    "competitive-gaming",
+    "manifold-users",
+    "personal-goals",
+    "commitment-devices",
+    "fun",
+    "fairlyrandom",
+]
+
+# Categories where Claude has no edge or negative expected value
+CATEGORY_BLACKLIST: list[str] = [
+    "metamarkets",
+    "tetraspace",
+    "personal",
+    "unranked",
+    "will-i",
+    "dailycoinflip",
+    "nonpredictive-profits",
+    "nonpredictive",
+    # Legacy no-edge categories (real-time data dependent)
+    "cricket",
+    "ipl-2026",
+    "sports-betting",
+    "sports-default",
+    "football",
+    "crypto-speculation",
+    "elections",
+]
+
+
 @dataclass(frozen=True)
 class Settings:
     # API keys
@@ -39,6 +74,35 @@ class Settings:
 
     # Paths
     db_path: str = os.getenv("DB_PATH", "predictions.db")
+
+    # Polymarket (paper trading only)
+    polymarket_enabled: bool = _parse_bool(
+        os.getenv("POLYMARKET_ENABLED", "false")
+    )
+    polymarket_mode: str = os.getenv("POLYMARKET_MODE", "paper")
+    polymarket_min_volume: int = int(os.getenv("POLYMARKET_MIN_VOLUME", "1000"))
+    polymarket_api_base: str = os.getenv(
+        "POLYMARKET_API_BASE", "https://gamma-api.polymarket.com"
+    )
+    polymarket_clob_base: str = os.getenv(
+        "POLYMARKET_CLOB_BASE", "https://clob.polymarket.com"
+    )
+
+    # Category filtering
+    category_filter_enabled: bool = _parse_bool(
+        os.getenv("CATEGORY_FILTER_ENABLED", "true")
+    )
+
+    # Daily API cost budget (USD) — halts Claude calls when exceeded
+    daily_api_budget: float = float(os.getenv("DAILY_API_BUDGET", "3.0"))
+
+    # Prompt version for A/B testing
+    active_prompt_version: str = os.getenv("ACTIVE_PROMPT_VERSION", "v2_market_aware")
+
+    # Nightly calibration report via Telegram
+    nightly_report_enabled: bool = _parse_bool(
+        os.getenv("NIGHTLY_REPORT_ENABLED", "true")
+    )
 
 
 settings = Settings()

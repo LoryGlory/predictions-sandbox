@@ -6,10 +6,16 @@ Not every market is worth analyzing. This filters to markets that are:
 - Not already fully resolved
 - Within a probability range where edges can exist
 - Not low-signal (coin flips, simulations, non-English)
+- In a whitelisted category (when category filtering is enabled)
 """
+import logging
 import re
 from datetime import UTC, datetime
 from typing import Any
+
+from config.settings import CATEGORY_BLACKLIST, CATEGORY_WHITELIST, settings
+
+logger = logging.getLogger(__name__)
 
 # Markets matching these patterns are pure noise — Claude has no informational edge.
 # Derived from backtest analysis showing 0.25 Brier (coin flip) on these categories.
@@ -21,17 +27,8 @@ _LOW_SIGNAL_PATTERNS = [
     re.compile(r"ALS\s+Tennis", re.IGNORECASE),
 ]
 
-# Categories where Claude has no edge — market reflects real-time data Claude can't access.
-# Derived from per-category Brier analysis (n=247, 2026-04-01).
-_NO_EDGE_CATEGORIES = frozenset({
-    "cricket",
-    "ipl-2026",
-    "sports-betting",
-    "sports-default",
-    "football",
-    "crypto-speculation",
-    "elections",
-})
+_BLACKLIST_SET = frozenset(CATEGORY_BLACKLIST)
+_WHITELIST_SET = frozenset(CATEGORY_WHITELIST)
 
 # Non-ASCII-heavy titles signal non-English markets where Claude's reasoning degrades
 _MIN_ASCII_RATIO = 0.5
@@ -57,11 +54,38 @@ def is_low_signal(question: str) -> bool:
     return False
 
 
+def check_category(market: dict[str, Any]) -> tuple[bool, str]:
+    """Check whether a market passes category filtering.
+
+    Returns (passes, reason) — reason is non-empty when the market is rejected.
+    When category filtering is disabled, all markets pass.
+    """
+    if not settings.category_filter_enabled:
+        return True, ""
+
+    tags = set(get_tags(market))
+
+    # Blacklisted categories are always rejected
+    overlap = tags & _BLACKLIST_SET
+    if overlap:
+        return False, f"blacklisted category: {', '.join(sorted(overlap))}"
+
+    # When filtering is enabled, untagged markets are skipped (don't waste tokens)
+    if not tags:
+        return False, "no category tags"
+
+    # Must match at least one whitelisted category
+    if not (tags & _WHITELIST_SET):
+        return False, f"no whitelisted category in: {', '.join(sorted(tags))}"
+
+    return True, ""
+
+
 def is_tradeable(market: dict[str, Any], min_prob: float = 0.05, max_prob: float = 0.95) -> bool:
     """Return True if a market is worth analyzing.
 
     Skips markets that are fully priced in (near 0 or 1), already-closed,
-    or low-signal (Claude has no edge on coin flips, simulations, etc.).
+    low-signal, or outside allowed categories.
     """
     if market.get("isResolved"):
         return False
@@ -72,8 +96,9 @@ def is_tradeable(market: dict[str, Any], min_prob: float = 0.05, max_prob: float
     if is_low_signal(question):
         return False
 
-    tags = set(get_tags(market))
-    if tags & _NO_EDGE_CATEGORIES:
+    passes, reason = check_category(market)
+    if not passes:
+        logger.debug("Skipping '%s': %s", question[:60], reason)
         return False
 
     prob = market.get("probability", 0.5)
@@ -114,3 +139,59 @@ def get_tags(market: dict[str, Any]) -> list[str]:
     Checks 'groupSlugs' first (newer API), falls back to 'tags'.
     """
     return market.get("groupSlugs") or market.get("tags") or []
+
+
+# ── Polymarket-specific filtering ────────────────────────────────────────
+
+
+def is_polymarket_tradeable(market: dict[str, Any]) -> bool:
+    """Return True if a Polymarket market is worth paper-trading.
+
+    Filters for:
+    - Binary markets only (YES/NO outcomes)
+    - Sufficient liquidity (volume > min threshold)
+    - Not closing within 1 hour
+    - Not already resolved
+    - English title
+    """
+    # Active and not resolved
+    if market.get("closed") or market.get("resolved"):
+        return False
+
+    # Binary only — Polymarket uses "outcomes" list
+    outcomes = market.get("outcomes", [])
+    if len(outcomes) != 2:
+        return False
+
+    # Volume check
+    volume = float(market.get("volume", 0) or 0)
+    if volume < settings.polymarket_min_volume:
+        return False
+
+    # Closing soon check (within 1 hour)
+    end_date = market.get("endDate") or market.get("end_date_iso")
+    if end_date:
+        try:
+            close_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            now = datetime.now(tz=UTC)
+            hours_remaining = (close_dt - now).total_seconds() / 3600
+            if hours_remaining < 1:
+                return False
+        except (ValueError, TypeError):
+            pass
+
+    # Non-English check
+    question = market.get("question", "")
+    if is_low_signal(question):
+        return False
+
+    return True
+
+
+def filter_polymarket_markets(
+    markets: list[dict[str, Any]],
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Filter Polymarket markets to paper-tradeable candidates."""
+    tradeable = [m for m in markets if is_polymarket_tradeable(m)]
+    return tradeable[:limit]
