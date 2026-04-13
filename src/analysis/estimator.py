@@ -6,6 +6,7 @@ into an estimate we can use for Kelly Criterion calculations.
 import asyncio
 import json
 import logging
+import random
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,9 +14,12 @@ import anthropic
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config.settings import settings
-from src.analysis.prompts import MARKET_ANALYSIS_SYSTEM, market_analysis_prompt
+from src.analysis.prompts import get_module_for_version
 
 logger = logging.getLogger(__name__)
+
+# 10% of markets get both v1 and v2 for A/B comparison
+AB_TEST_RATE = 0.10
 
 
 @dataclass
@@ -27,6 +31,7 @@ class ProbabilityEstimate:
     factors_against: list[str]
     model: str
     raw_response: str        # keep for debugging
+    prompt_version: str = ""
 
 
 class Estimator:
@@ -60,6 +65,8 @@ class Estimator:
         question: str,
         context: str = "",
         market_price: float | None = None,
+        category: str | None = None,
+        prompt_version: str | None = None,
     ) -> ProbabilityEstimate:
         """Get a probability estimate from Claude for a market question.
 
@@ -67,6 +74,8 @@ class Estimator:
             question: The market question.
             context: Optional additional context.
             market_price: Current market price (shown to Claude for reference).
+            category: Market category (used for category-specific hints in v2).
+            prompt_version: Override prompt version (for A/B testing).
 
         Returns:
             Parsed ProbabilityEstimate.
@@ -74,17 +83,28 @@ class Estimator:
         Raises:
             ValueError: If Claude returns malformed JSON or an out-of-range probability.
         """
-        user_message = market_analysis_prompt(question, context, market_price)
+        version = prompt_version or settings.active_prompt_version
+        prompt_mod = get_module_for_version(version)
+
+        user_message = prompt_mod.build_user_prompt(
+            question, context, market_price, category,
+        )
 
         # Anthropic SDK is sync; wrap in asyncio.to_thread for async pipelines
         raw = await asyncio.to_thread(
             self._call_api,
             model=self._model,
             max_tokens=1024,
-            system=MARKET_ANALYSIS_SYSTEM,
+            system=prompt_mod.SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )
-        return self._parse_response(raw, model=self._model)
+        result = self._parse_response(raw, model=self._model)
+        result.prompt_version = prompt_mod.VERSION
+        return result
+
+    def should_ab_test(self) -> bool:
+        """Return True if this market should get both prompt versions."""
+        return random.random() < AB_TEST_RATE
 
     @staticmethod
     def _extract_json(raw: str) -> str:
@@ -112,12 +132,16 @@ class Estimator:
         if not 0.0 <= prob <= 1.0:
             raise ValueError(f"Probability out of range: {prob}")
 
+        # v2 uses key_factors_for/against, v1 uses factors_for/against
+        factors_for = data.get("key_factors_for") or data.get("factors_for", [])
+        factors_against = data.get("key_factors_against") or data.get("factors_against", [])
+
         return ProbabilityEstimate(
             estimated_probability=prob,
             confidence=data.get("confidence", "low"),
             reasoning=data.get("reasoning", ""),
-            factors_for=data.get("factors_for", []),
-            factors_against=data.get("factors_against", []),
+            factors_for=factors_for,
+            factors_against=factors_against,
             model=model,
             raw_response=raw,
         )
