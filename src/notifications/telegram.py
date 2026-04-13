@@ -83,14 +83,18 @@ async def notify_daily_summary(
     api_calls: int,
     est_cost_usd: float,
     mean_brier: float | None = None,
+    platform_counts: dict[str, int] | None = None,
 ) -> None:
     """Send a daily summary — call this from a separate daily script or cron."""
     lines = [
         "<b>Daily summary</b>",
         f"Predictions: {predictions_today}",
-        f"API calls: {api_calls}",
-        f"Est. cost: ${est_cost_usd:.3f}",
     ]
+    if platform_counts and len(platform_counts) > 1:
+        for plat, count in sorted(platform_counts.items()):
+            lines.append(f"  {plat}: {count}")
+    lines.append(f"API calls: {api_calls}")
+    lines.append(f"Est. cost: ${est_cost_usd:.3f}")
     if mean_brier is not None:
-        lines.append(f"Mean Brier: {mean_brier:.4f}")
+        lines.append(f"Mean Brier (7d): {mean_brier:.4f}")
     await send_message("\n".join(lines))

@@ -28,7 +28,7 @@ async def _query_resolved_today(db) -> list[dict]:
         """SELECT
                c.id, c.prediction_id, c.predicted_prob, c.actual_outcome, c.brier_score,
                p.market_price, p.estimated_prob, p.reasoning,
-               m.question, m.tags, m.category
+               m.question, m.tags, m.category, m.platform
            FROM calibration c
            JOIN predictions p ON c.prediction_id = p.id
            JOIN markets m ON p.market_id = m.id
@@ -105,6 +105,43 @@ def _per_category_scores(resolved: list[dict]) -> dict[str, dict]:
     return result
 
 
+def _per_platform_scores(resolved: list[dict]) -> dict[str, dict]:
+    """Compute per-platform Brier scores and counts."""
+    platforms: dict[str, dict] = {}
+
+    for r in resolved:
+        platform = r.get("platform") or "manifold"
+        if platform not in platforms:
+            platforms[platform] = {"model_briers": [], "market_briers": []}
+        if r["brier_score"] is not None:
+            platforms[platform]["model_briers"].append(r["brier_score"])
+        if r["market_price"] is not None and r["actual_outcome"] is not None:
+            market_brier = (r["market_price"] - r["actual_outcome"]) ** 2
+            platforms[platform]["market_briers"].append(market_brier)
+
+    result = {}
+    for platform, data in platforms.items():
+        if not data["model_briers"]:
+            continue
+        mean_model = sum(data["model_briers"]) / len(data["model_briers"])
+        mean_market = (
+            sum(data["market_briers"]) / len(data["market_briers"])
+            if data["market_briers"]
+            else None
+        )
+        skill = None
+        if mean_market and mean_market > 0:
+            skill = brier_skill_score(mean_model, mean_market)
+        result[platform] = {
+            "count": len(data["model_briers"]),
+            "mean_brier": mean_model,
+            "market_brier": mean_market,
+            "skill_score": skill,
+        }
+
+    return result
+
+
 def _format_report(
     resolved: list[dict],
     mean_brier: float,
@@ -113,6 +150,7 @@ def _format_report(
     best: dict | None,
     worst: dict | None,
     category_scores: dict[str, dict],
+    platform_scores: dict[str, dict],
     day_spend: float,
     month_spend: float,
 ) -> str:
@@ -164,6 +202,17 @@ def _format_report(
             if loser_strs:
                 lines.append(f"Category losers: {', '.join(loser_strs)}")
 
+    # Per-platform breakdown
+    if len(platform_scores) > 1:
+        lines.append("")
+        lines.append("<b>Per platform:</b>")
+        for plat, pdata in sorted(platform_scores.items()):
+            skill_str = f", skill {pdata['skill_score']:+.2f}" if pdata["skill_score"] is not None else ""
+            lines.append(
+                f"  {plat}: {pdata['count']} resolved, "
+                f"Brier {pdata['mean_brier']:.4f}{skill_str}"
+            )
+
     lines.append("")
     lines.append(f"API spend today: ${day_spend:.2f}")
     lines.append(f"API spend this month: ${month_spend:.2f}")
@@ -207,8 +256,9 @@ async def run_nightly_report() -> None:
         best = scored_resolved[0] if scored_resolved else None  # sorted ASC
         worst = scored_resolved[-1] if scored_resolved else None
 
-        # Per-category
+        # Per-category and per-platform
         category_scores = _per_category_scores(resolved)
+        platform_scores = _per_platform_scores(resolved)
 
         # API spend
         day_spend, month_spend = await _query_api_spend(db)
@@ -216,7 +266,8 @@ async def run_nightly_report() -> None:
         # Format and send
         report_text = _format_report(
             resolved, mean_brier, market_brier, skill,
-            best, worst, category_scores, day_spend, month_spend,
+            best, worst, category_scores, platform_scores,
+            day_spend, month_spend,
         )
 
         await send_message(report_text)

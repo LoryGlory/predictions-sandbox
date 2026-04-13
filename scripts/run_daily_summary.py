@@ -27,13 +27,23 @@ async def send_daily() -> None:
         api_calls = cost_row["calls"] if cost_row else 0
         est_cost = cost_row["est_cost_usd"] if cost_row else 0.0
 
-        # Today's predictions
+        # Today's predictions — total and per platform
         async with db.execute(
             """SELECT COUNT(*) as cnt FROM predictions
                WHERE timestamp >= datetime('now', 'start of day')"""
         ) as cur:
             pred_row = await cur.fetchone()
         predictions_today = pred_row["cnt"]
+
+        async with db.execute(
+            """SELECT m.platform, COUNT(*) as cnt
+               FROM predictions p
+               JOIN markets m ON p.market_id = m.id
+               WHERE p.timestamp >= datetime('now', 'start of day')
+               GROUP BY m.platform"""
+        ) as cur:
+            platform_rows = await cur.fetchall()
+        platform_counts = {r["platform"]: r["cnt"] for r in platform_rows}
 
         # Recent mean Brier score (last 7 days)
         async with db.execute(
@@ -48,6 +58,7 @@ async def send_daily() -> None:
         api_calls=api_calls,
         est_cost_usd=est_cost,
         mean_brier=mean_brier,
+        platform_counts=platform_counts,
     )
     logger.info("Daily summary sent")
 
