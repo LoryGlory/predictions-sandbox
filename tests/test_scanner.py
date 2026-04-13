@@ -2,7 +2,13 @@
 import time
 from unittest.mock import patch
 
-from src.markets.scanner import check_category, filter_markets, get_tags, is_tradeable
+from src.markets.scanner import (
+    check_category,
+    filter_markets,
+    get_tags,
+    is_polymarket_tradeable,
+    is_tradeable,
+)
 
 
 def binary_market(**kwargs):
@@ -241,3 +247,51 @@ def test_is_tradeable_respects_category_filter():
         groupSlugs=["obscure-category"],
     )
     assert is_tradeable(unknown) is True
+
+
+# ── Polymarket filter tests ─────────────────────────────────────────────
+
+
+def _poly_market(**kwargs):
+    """Helper to build a minimal Polymarket market dict."""
+    base = {
+        "question": "Will X happen?",
+        "outcomes": '["Yes", "No"]',  # JSON string, as Polymarket returns
+        "outcomePrices": '["0.55", "0.45"]',
+        "volume": "50000",
+        "closed": False,
+        "resolved": None,  # Polymarket uses null, not False
+        "endDate": None,
+    }
+    base.update(kwargs)
+    return base
+
+
+def test_polymarket_accepts_valid_market():
+    assert is_polymarket_tradeable(_poly_market()) is True
+
+
+def test_polymarket_parses_json_string_outcomes():
+    """Polymarket returns outcomes as JSON strings, not Python lists."""
+    assert is_polymarket_tradeable(_poly_market(outcomes='["Yes", "No"]')) is True
+
+
+def test_polymarket_rejects_non_binary_outcomes():
+    assert is_polymarket_tradeable(_poly_market(outcomes='["A", "B", "C"]')) is False
+
+
+def test_polymarket_rejects_resolved():
+    assert is_polymarket_tradeable(_poly_market(resolved=True)) is False
+
+
+def test_polymarket_allows_resolved_null():
+    """Polymarket uses null (None) for unresolved markets."""
+    assert is_polymarket_tradeable(_poly_market(resolved=None)) is True
+
+
+def test_polymarket_rejects_low_volume():
+    assert is_polymarket_tradeable(_poly_market(volume="500")) is False
+
+
+def test_polymarket_rejects_invalid_outcomes_string():
+    assert is_polymarket_tradeable(_poly_market(outcomes="not valid json")) is False

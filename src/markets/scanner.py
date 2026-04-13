@@ -8,6 +8,7 @@ Not every market is worth analyzing. This filters to markets that are:
 - Not low-signal (coin flips, simulations, non-English)
 - In a whitelisted category (when category filtering is enabled)
 """
+import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -155,12 +156,17 @@ def is_polymarket_tradeable(market: dict[str, Any]) -> bool:
     - Not already resolved
     - English title
     """
-    # Active and not resolved
-    if market.get("closed") or market.get("resolved"):
+    # Active and not resolved — Polymarket uses null for unresolved
+    if market.get("closed") or market.get("resolved") is True:
         return False
 
-    # Binary only — Polymarket uses "outcomes" list
+    # Binary only — Polymarket returns outcomes as a JSON string e.g. '["Yes", "No"]'
     outcomes = market.get("outcomes", [])
+    if isinstance(outcomes, str):
+        try:
+            outcomes = json.loads(outcomes)
+        except (json.JSONDecodeError, TypeError):
+            return False
     if len(outcomes) != 2:
         return False
 

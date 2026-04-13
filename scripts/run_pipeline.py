@@ -52,10 +52,21 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
 
     for market in candidates:
         question = market.get("question", "")
-        # Polymarket uses outcomePrices or price fields
-        market_price = float(market.get("outcomePrices", [0.5, 0.5])[0])
+        # Polymarket returns outcomePrices as JSON string e.g. '["0.535", "0.465"]'
+        outcome_prices = market.get("outcomePrices", [0.5, 0.5])
+        if isinstance(outcome_prices, str):
+            try:
+                outcome_prices = json.loads(outcome_prices)
+            except (json.JSONDecodeError, TypeError):
+                outcome_prices = [0.5, 0.5]
+        market_price = float(outcome_prices[0]) if outcome_prices else 0.5
         external_id = str(market.get("id", market.get("condition_id", "")))
-        tags = market.get("tags", [])
+        tags = market.get("tags") or []
+        if isinstance(tags, str):
+            try:
+                tags = json.loads(tags)
+            except (json.JSONDecodeError, TypeError):
+                tags = []
         tags_json = json.dumps(tags) if tags else None
 
         # Upsert market record
