@@ -187,18 +187,18 @@ def test_category_filter_rejects_blacklisted():
     assert "blacklisted" in reason
 
 
-def test_category_filter_rejects_untagged():
-    market = binary_market(groupSlugs=[])  # explicitly no tags
-    passes, reason = check_category(market)
-    assert not passes
-    assert "no category tags" in reason
+def test_category_filter_allows_untagged():
+    """Untagged markets pass — Manifold list endpoint doesn't return tags."""
+    market = binary_market(groupSlugs=[])
+    passes, _ = check_category(market)
+    assert passes
 
 
-def test_category_filter_rejects_non_whitelisted():
+def test_category_filter_allows_unknown_category():
+    """Unknown categories pass — only blacklisted ones are rejected."""
     market = binary_market(groupSlugs=["some-random-category"])
-    passes, reason = check_category(market)
-    assert not passes
-    assert "no whitelisted category" in reason
+    passes, _ = check_category(market)
+    assert passes
 
 
 def test_category_filter_passes_whitelisted():
@@ -223,15 +223,21 @@ def test_category_filter_disabled_passes_untagged():
 
 
 def test_is_tradeable_respects_category_filter():
-    """Whitelisted market passes; non-whitelisted market is rejected."""
+    """Whitelisted passes, blacklisted rejected, unknown allowed."""
     whitelisted = binary_market(
         question="Will I finish my goal?",
         groupSlugs=["personal-goals"],
     )
     assert is_tradeable(whitelisted) is True
 
-    non_whitelisted = binary_market(
+    blacklisted = binary_market(
+        question="Some cricket match?",
+        groupSlugs=["cricket", "ipl-2026"],
+    )
+    assert is_tradeable(blacklisted) is False
+
+    unknown = binary_market(
         question="Some random question?",
         groupSlugs=["obscure-category"],
     )
-    assert is_tradeable(non_whitelisted) is False
+    assert is_tradeable(unknown) is True
