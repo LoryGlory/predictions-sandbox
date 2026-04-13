@@ -60,6 +60,8 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
             except (json.JSONDecodeError, TypeError):
                 outcome_prices = [0.5, 0.5]
         market_price = float(outcome_prices[0]) if outcome_prices else 0.5
+        # Set probability so the executor can read it (Polymarket doesn't have this field)
+        market["probability"] = market_price
         external_id = str(market.get("id", market.get("condition_id", "")))
         tags = market.get("tags") or []
         if isinstance(tags, str):
