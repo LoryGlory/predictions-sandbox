@@ -278,7 +278,7 @@ async def get_trades(page: int = 1, per_page: int = 20) -> tuple[list[dict], dic
             total = (await cur.fetchone())["cnt"]
 
         async with db.execute(
-            """SELECT t.*, m.question
+            """SELECT t.*, m.question, m.platform
                FROM trades t
                JOIN markets m ON t.market_id = m.id
                ORDER BY t.timestamp DESC

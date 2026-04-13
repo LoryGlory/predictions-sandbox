@@ -24,6 +24,7 @@
     <thead>
         <tr>
             <th>Market</th>
+            <th>Platform</th>
             <th>Direction</th>
             <th>Size</th>
             <th>Entry</th>
@@ -36,6 +37,7 @@
         {% for t in trades %}
         <tr>
             <td><a href="/markets/{{ t.market_id }}">{{ t.question[:50] }}{% if t.question|length > 50 %}…{% endif %}</a></td>
+            <td><span class="tag">{{ t.platform }}</span></td>
             <td>{{ t.direction }}</td>
             <td>{{ "%.2f"|format(t.size) }}</td>
             <td>{{ t.entry_price|pct }}</td>
