@@ -63,6 +63,20 @@ async def trades(request: Request, page: int = 1):
     })
 
 
+@router.get("/polymarket", response_class=HTMLResponse)
+async def polymarket(request: Request, page: int = 1):
+    rows, total = await queries.get_markets(page=page, per_page=PER_PAGE, platform="polymarket")
+    total_pages = max(1, math.ceil(total / PER_PAGE))
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request, "markets.html", {
+        "markets": rows,
+        "page": page,
+        "total_pages": total_pages,
+        "total": total,
+        "platform": "polymarket",
+    })
+
+
 @router.get("/costs", response_class=HTMLResponse)
 async def costs(request: Request):
     rows, total = await queries.get_cost_log()

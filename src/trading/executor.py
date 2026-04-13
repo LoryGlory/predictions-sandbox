@@ -10,6 +10,9 @@ from src.trading.risk import BudgetExceededError, BudgetGuardian, KillSwitchErro
 
 logger = logging.getLogger(__name__)
 
+# Simulated costs for Polymarket paper trading
+POLYMARKET_GAS_FEE_USD = 0.03  # Average Polygon gas cost per trade
+
 
 class TradeExecutor:
     """Executes or simulates trades based on Kelly-sized bets.
@@ -29,8 +32,18 @@ class TradeExecutor:
         direction: str,
         bet_size: float,
         prediction_id: int | None = None,
+        platform: str = "manifold",
+        spread: float | None = None,
     ) -> dict[str, Any] | None:
         """Attempt to execute a trade.
+
+        Args:
+            market: Market dict from scanner.
+            direction: 'yes' or 'no'.
+            bet_size: Dollar/mana amount to bet.
+            prediction_id: FK to predictions table.
+            platform: 'manifold' or 'polymarket'.
+            spread: Bid/ask spread from CLOB (Polymarket only).
 
         Returns a trade record dict (suitable for DB insertion) or None if blocked.
         """
@@ -44,22 +57,40 @@ class TradeExecutor:
             logger.warning("Trade blocked: %s", e)
             return None
 
-        trade = {
+        entry_price = market.get("probability", 0.5)
+
+        trade: dict[str, Any] = {
             "market_id": market.get("id"),
             "prediction_id": prediction_id,
             "direction": direction,
             "size": bet_size,
-            "entry_price": market.get("probability", 0.5),
+            "entry_price": entry_price,
             "is_paper": int(self.paper_mode),
         }
 
+        # Add Polymarket-specific simulated costs
+        if platform == "polymarket":
+            spread_cost = (spread or 0.01) * bet_size  # default 1% spread
+            gas_fee = POLYMARKET_GAS_FEE_USD
+            trade["spread_cost"] = spread_cost
+            trade["gas_fee"] = gas_fee
+            trade["total_cost"] = spread_cost + gas_fee
+            label = "POLYMARKET PAPER"
+        else:
+            label = "PAPER" if self.paper_mode else "LIVE"
+
         if self.paper_mode:
+            cost_str = ""
+            if platform == "polymarket":
+                cost_str = f" (spread: ${trade['spread_cost']:.3f}, gas: ${gas_fee:.3f})"
             logger.info(
-                "PAPER TRADE: %s %s M$%.2f on %s",
+                "%s TRADE: %s %s $%.2f on %s%s",
+                label,
                 direction,
                 market.get("question", "?")[:60],
                 bet_size,
                 market.get("id"),
+                cost_str,
             )
         else:
             logger.info("LIVE TRADE: placing bet via Manifold API")

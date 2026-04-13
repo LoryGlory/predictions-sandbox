@@ -56,21 +56,29 @@ async def get_overview_stats() -> dict:
     return stats
 
 
-async def get_markets(page: int = 1, per_page: int = 20) -> tuple[list[dict], int]:
-    """Paginated markets with prediction counts."""
+async def get_markets(
+    page: int = 1, per_page: int = 20, platform: str | None = None,
+) -> tuple[list[dict], int]:
+    """Paginated markets with prediction counts, optionally filtered by platform."""
     offset = (page - 1) * per_page
     async with get_db(read_only=True) as db:
-        async with db.execute("SELECT COUNT(*) as cnt FROM markets") as cur:
+        where = "WHERE m.platform = ?" if platform else ""
+        params: list = [platform] if platform else []
+
+        async with db.execute(
+            f"SELECT COUNT(*) as cnt FROM markets m {where}", params,
+        ) as cur:
             total = (await cur.fetchone())["cnt"]
 
         async with db.execute(
-            """SELECT m.*, COUNT(p.id) as prediction_count
+            f"""SELECT m.*, COUNT(p.id) as prediction_count
                FROM markets m
                LEFT JOIN predictions p ON p.market_id = m.id
+               {where}
                GROUP BY m.id
                ORDER BY m.last_updated DESC
                LIMIT ? OFFSET ?""",
-            (per_page, offset),
+            [*params, per_page, offset],
         ) as cur:
             rows = [dict(r) for r in await cur.fetchall()]
 
