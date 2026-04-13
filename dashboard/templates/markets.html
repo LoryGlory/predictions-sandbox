@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Markets{% endblock %}
 {% block content %}
-<h1>Markets <small>({{ total }})</small></h1>
+<h1>{% if platform == "polymarket" %}Polymarket{% else %}Markets{% endif %} <small>({{ total }})</small></h1>
 
 {% if markets %}
 <figure>
@@ -9,6 +9,7 @@
     <thead>
         <tr>
             <th>Question</th>
+            {% if not platform %}<th>Platform</th>{% endif %}
             <th>Price</th>
             <th>Predictions</th>
             <th>Last Updated</th>
@@ -18,6 +19,7 @@
         {% for m in markets %}
         <tr>
             <td><a href="/markets/{{ m.id }}">{{ m.question[:70] }}{% if m.question|length > 70 %}…{% endif %}</a></td>
+            {% if not platform %}<td><span class="tag">{{ m.platform }}</span></td>{% endif %}
             <td>{{ m.current_price|pct }}</td>
             <td>{{ m.prediction_count }}</td>
             <td>{{ m.last_updated[:16] }}</td>
