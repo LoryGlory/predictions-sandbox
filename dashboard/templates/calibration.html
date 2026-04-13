@@ -1,7 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Calibration{% endblock %}
 {% block content %}
-<h1>Calibration</h1>
+<h1>Calibration {% if filtered %}<small>(filtered)</small>{% endif %}</h1>
+
+<nav>
+    <ul>
+        <li>{% if not filtered %}<strong>All data</strong>{% else %}<a href="/calibration">All data</a>{% endif %}</li>
+        <li>{% if filtered %}<strong>Current filters</strong>{% else %}<a href="/calibration?filtered=true">Current filters</a>{% endif %}</li>
+    </ul>
+</nav>
 
 {% if resolved_count and resolved_count > 0 %}
 <div class="stat-grid">

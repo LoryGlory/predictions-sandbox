@@ -40,9 +40,9 @@ async def market_detail(request: Request, market_id: int):
 
 
 @router.get("/calibration", response_class=HTMLResponse)
-async def calibration(request: Request):
-    overview = await queries.get_calibration_overview()
-    categories = await queries.get_category_stats(min_count=3)
+async def calibration(request: Request, filtered: bool = False):
+    overview = await queries.get_calibration_overview(filtered=filtered)
+    categories = await queries.get_category_stats(min_count=3, filtered=filtered)
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "calibration.html", {
         **overview,

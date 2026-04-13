@@ -1,8 +1,22 @@
 """Dashboard data access layer — all SQL queries for the read-only dashboard."""
 import json
 
+from config.settings import CATEGORY_BLACKLIST
 from src.db.connection import get_db
 from src.tracking.calibration import brier_skill_score
+
+_BLACKLIST_SET = frozenset(CATEGORY_BLACKLIST)
+
+
+def _passes_filter(tags_json: str | None) -> bool:
+    """Return True if a market's tags don't overlap with the blacklist."""
+    if not tags_json:
+        return True
+    try:
+        tags = set(json.loads(tags_json))
+    except (json.JSONDecodeError, TypeError):
+        return True
+    return not (tags & _BLACKLIST_SET)
 
 
 async def get_overview_stats() -> dict:
@@ -118,79 +132,87 @@ async def get_market_detail(market_id: int) -> dict | None:
     return market
 
 
-async def get_calibration_overview() -> dict:
-    """Calibration stats: Brier scores, buckets, and category breakdown."""
-    result: dict = {}
-    async with get_db(read_only=True) as db:
-        # Overall stats
-        async with db.execute(
-            """SELECT COUNT(*) as cnt,
-                      AVG(brier_score) as mean_brier
-               FROM calibration
-               WHERE actual_outcome IS NOT NULL"""
-        ) as cur:
-            row = await cur.fetchone()
-            result["resolved_count"] = row["cnt"]
-            result["mean_brier"] = row["mean_brier"]
+async def get_calibration_overview(filtered: bool = False) -> dict:
+    """Calibration stats: Brier scores, buckets, and category breakdown.
 
-        # Market baseline Brier — use price at prediction time, not current
+    When filtered=True, excludes predictions on markets with blacklisted tags.
+    """
+    result: dict = {"filtered": filtered}
+    async with get_db(read_only=True) as db:
+        # Fetch all resolved predictions with market tags for filtering
         async with db.execute(
-            """SELECT AVG(
-                   (COALESCE(p.market_price, m.current_price) - c.actual_outcome)
-                   * (COALESCE(p.market_price, m.current_price) - c.actual_outcome)
-               ) as market_brier
+            """SELECT c.predicted_prob, c.actual_outcome, c.brier_score,
+                      COALESCE(p.market_price, m.current_price) as market_price,
+                      m.tags
                FROM calibration c
                JOIN predictions p ON c.prediction_id = p.id
                JOIN markets m ON p.market_id = m.id
                WHERE c.actual_outcome IS NOT NULL"""
         ) as cur:
-            row = await cur.fetchone()
-            result["market_brier"] = row["market_brier"]
+            all_rows = [dict(r) for r in await cur.fetchall()]
 
-        if result["mean_brier"] and result["market_brier"] and result["market_brier"] > 0:
-            try:
-                result["skill_score"] = brier_skill_score(
-                    result["mean_brier"], result["market_brier"]
-                )
-            except ValueError:
-                result["skill_score"] = None
-        else:
+    if filtered:
+        all_rows = [r for r in all_rows if _passes_filter(r["tags"])]
+
+    if not all_rows:
+        result["resolved_count"] = 0
+        result["mean_brier"] = None
+        result["market_brier"] = None
+        result["skill_score"] = None
+        result["buckets"] = []
+        return result
+
+    # Aggregate scores
+    briers = [r["brier_score"] for r in all_rows if r["brier_score"] is not None]
+    market_briers = [
+        (r["market_price"] - r["actual_outcome"]) ** 2
+        for r in all_rows if r["market_price"] is not None
+    ]
+
+    result["resolved_count"] = len(briers)
+    result["mean_brier"] = sum(briers) / len(briers) if briers else None
+    result["market_brier"] = sum(market_briers) / len(market_briers) if market_briers else None
+
+    if result["mean_brier"] and result["market_brier"] and result["market_brier"] > 0:
+        try:
+            result["skill_score"] = brier_skill_score(
+                result["mean_brier"], result["market_brier"]
+            )
+        except ValueError:
             result["skill_score"] = None
+    else:
+        result["skill_score"] = None
 
-        # Calibration buckets (deciles)
-        async with db.execute(
-            """SELECT predicted_prob, actual_outcome
-               FROM calibration
-               WHERE actual_outcome IS NOT NULL"""
-        ) as cur:
-            rows = await cur.fetchall()
+    # Calibration buckets (deciles)
+    buckets: dict[str, dict] = {}
+    for r in all_rows:
+        bucket_idx = min(int(r["predicted_prob"] * 10), 9)
+        label = f"{bucket_idx * 10}-{(bucket_idx + 1) * 10}%"
+        if label not in buckets:
+            buckets[label] = {"label": label, "count": 0, "sum_pred": 0.0, "sum_outcome": 0}
+        buckets[label]["count"] += 1
+        buckets[label]["sum_pred"] += r["predicted_prob"]
+        buckets[label]["sum_outcome"] += r["actual_outcome"]
 
-        buckets: dict[str, dict] = {}
-        for r in rows:
-            bucket_idx = min(int(r["predicted_prob"] * 10), 9)
-            label = f"{bucket_idx * 10}-{(bucket_idx + 1) * 10}%"
-            if label not in buckets:
-                buckets[label] = {"label": label, "count": 0, "sum_pred": 0.0, "sum_outcome": 0}
-            buckets[label]["count"] += 1
-            buckets[label]["sum_pred"] += r["predicted_prob"]
-            buckets[label]["sum_outcome"] += r["actual_outcome"]
-
-        bucket_list = []
-        for label in sorted(buckets.keys()):
-            b = buckets[label]
-            bucket_list.append({
-                "label": label,
-                "count": b["count"],
-                "mean_predicted": b["sum_pred"] / b["count"],
-                "actual_rate": b["sum_outcome"] / b["count"],
-            })
-        result["buckets"] = bucket_list
+    bucket_list = []
+    for label in sorted(buckets.keys()):
+        b = buckets[label]
+        bucket_list.append({
+            "label": label,
+            "count": b["count"],
+            "mean_predicted": b["sum_pred"] / b["count"],
+            "actual_rate": b["sum_outcome"] / b["count"],
+        })
+    result["buckets"] = bucket_list
 
     return result
 
 
-async def get_category_stats(min_count: int = 3) -> list[dict]:
-    """Per-category Brier scores — mirrors run_category_analysis.py logic."""
+async def get_category_stats(min_count: int = 3, filtered: bool = False) -> list[dict]:
+    """Per-category Brier scores — mirrors run_category_analysis.py logic.
+
+    When filtered=True, excludes predictions on markets with blacklisted tags.
+    """
     async with get_db(read_only=True) as db:
         async with db.execute(
             """SELECT c.brier_score, c.actual_outcome,
@@ -209,6 +231,10 @@ async def get_category_stats(min_count: int = 3) -> list[dict]:
     category_data: dict[str, list[dict]] = {}
     for row in rows:
         tags_raw = row["tags"]
+
+        if filtered and not _passes_filter(tags_raw):
+            continue
+
         tags: list[str] = json.loads(tags_raw) if tags_raw else ["uncategorized"]
 
         market_px = row["market_price"] if row["market_price"] is not None else row["current_price"]
