@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from src.analysis.estimator import Estimator, ProbabilityEstimate
 from src.db.connection import get_db
 from src.markets.manifold import ManifoldClient
+from src.markets.scanner import check_category, is_low_signal
 from src.tracking.calibration import brier_score, brier_skill_score, mean_brier_score
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,7 @@ async def fetch_resolved_markets(
                 and market.get("outcomeType") == "BINARY"
                 and market.get("resolution") in ("YES", "NO")
                 and market.get("probability") is not None
+                and not is_low_signal(market.get("question", ""))
             ):
                 resolved.append(market)
                 if len(resolved) >= count:
@@ -182,6 +184,12 @@ async def run_backtest(
                 except Exception as e:
                     logger.debug("Could not fetch tags for %s: %s", external_id, e)
             tags_json = json.dumps(raw_tags) if raw_tags else None
+
+            # Apply category filter — skip markets the live pipeline would reject
+            passes, reason = check_category({"groupSlugs": raw_tags})
+            if not passes:
+                logger.info("Skipping '%s': %s", question[:50], reason)
+                continue
 
             logger.info("Estimating: %s", question[:60])
             try:

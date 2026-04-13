@@ -42,6 +42,10 @@ CATEGORY_BLACKLIST: list[str] = [
     "football",
     "crypto-speculation",
     "elections",
+    # Real-time geopolitics — Claude lacks live intel, skill score -1.06
+    "iran",
+    "middle-east",
+    "israeliran-conflict",
 ]
 
 

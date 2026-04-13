@@ -136,8 +136,8 @@ def test_v2_system_prompt_requires_json():
     assert "estimated_probability" in V2_SYSTEM
 
 
-def test_v2_system_prompt_mentions_bayesian_prior():
-    assert "Bayesian prior" in V2_SYSTEM or "starting point" in V2_SYSTEM
+def test_v2_system_prompt_mentions_independent_estimate():
+    assert "independent estimate" in V2_SYSTEM or "independent view" in V2_SYSTEM
 
 
 def test_v2_system_prompt_requires_deviation_justification():
@@ -145,15 +145,15 @@ def test_v2_system_prompt_requires_deviation_justification():
     assert "15 percentage points" in V2_SYSTEM or "15pp" in V2_SYSTEM
 
 
-def test_v2_prompt_includes_market_price_as_prior():
+def test_v2_prompt_includes_market_price():
     prompt = v2_prompt("Will X?", market_price=0.65)
     assert "65.0%" in prompt
-    assert "starting point" in prompt
+    assert "own estimate" in prompt or "market price" in prompt
 
 
 def test_v2_prompt_warns_on_extreme_price():
     prompt = v2_prompt("Will X?", market_price=0.95)
-    assert "EXTREME" in prompt
+    assert "extreme" in prompt.lower() or "cautious" in prompt.lower()
 
 
 def test_v2_prompt_includes_category_hint():
