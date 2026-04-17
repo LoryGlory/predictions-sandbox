@@ -83,6 +83,19 @@ class PolymarketClient:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         reraise=True,
     )
+    async def get_market(self, market_id: str) -> dict[str, Any]:
+        """Fetch a single market by id (for resolution checks)."""
+        assert self._gamma is not None, _ERR_CONTEXT_MANAGER
+        resp = await self._gamma.get(f"/markets/{market_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     async def get_event_tags(self, event_id: str) -> list[str]:
         """Get tags for an event (for category filtering)."""
         assert self._gamma is not None, _ERR_CONTEXT_MANAGER
