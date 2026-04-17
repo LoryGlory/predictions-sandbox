@@ -1,8 +1,26 @@
-# Prediction Sandbox
+<div align="center">
 
-A Raspberry Pi 5-based prediction market pipeline. Polls Manifold Markets and Polymarket, asks Claude for probability estimates, applies Kelly Criterion for bet sizing, and tracks calibration via Brier scores.
+# 🎲 Prediction Sandbox
 
-**Status:** Paper trading only. No real money. See [my blog post](https://loryglorybuilds.substack.com/) for the calibration results so far.
+**An LLM-powered prediction market bot running on a Raspberry Pi 5.**
+
+Polls Manifold Markets and Polymarket, asks Claude for probability estimates, applies Kelly Criterion for bet sizing, and tracks calibration via Brier scores.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/LoryGlory/predictions-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/LoryGlory/predictions-sandbox/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-123%20passing-brightgreen.svg)](tests/)
+[![Claude](https://img.shields.io/badge/powered%20by-Claude-8b5cf6.svg)](https://www.anthropic.com/)
+[![Raspberry Pi](https://img.shields.io/badge/runs%20on-Raspberry%20Pi%205-c51a4a.svg)](https://www.raspberrypi.com/)
+[![Paper Trading](https://img.shields.io/badge/mode-paper%20trading-orange.svg)](#)
+
+[📖 Blog](https://loryglorybuilds.substack.com/) • [🏗️ Architecture](#architecture) • [🚀 Quick Start](#quick-start-local-dev) • [📊 Roadmap](#phase-roadmap)
+
+</div>
+
+---
+
+> **⚠️ Status:** Paper trading only. No real money. Currently running at **−0.165 skill score** on Manifold (losing to the market by ~16%). See [my blog post](https://loryglorybuilds.substack.com/) for the deep dive on what the calibration data actually shows.
 
 ## What it does
 
