@@ -72,18 +72,19 @@ def kelly_bet_size(
 
 
 _CONFIDENCE_SCALE = {
-    "low": 0.25,
-    "medium": 0.6,
-    "high": 1.0,
+    "high": 0.0,      # counterintuitive: "high" is where Claude is overconfident
+    "medium": 1.0,    # empirically the only bucket with positive skill
+    "low": 0.3,       # slight skill deficit but still has signal
 }
 
 
 def confidence_scale(confidence: str | None) -> float:
     """Map Claude's self-reported confidence to a bet-size multiplier.
 
-    Returns a scalar in [0.25, 1.0]. Unknown or missing confidence defaults to
-    medium (0.6) — we shouldn't skip predictions just because the model forgot
-    to set the field.
+    Weights are inverted from intuition because retrospective analysis on 609
+    resolved predictions showed "high" confidence correlates with catastrophic
+    misses (Iran geopolitics etc.), while "medium" is the only bucket that
+    beats the market baseline. See scripts/analyze_confidence.py.
     """
     if not confidence:
         return _CONFIDENCE_SCALE["medium"]

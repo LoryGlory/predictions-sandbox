@@ -90,27 +90,29 @@ def test_kelly_fraction_non_symmetric_market():
 # ── confidence_scale tests ──────────────────────────────────────────────
 
 
-def test_confidence_scale_high():
-    assert confidence_scale("high") == pytest.approx(1.0)
+def test_confidence_scale_high_is_zero():
+    # Weights inverted after analysis: "high" confidence correlates with
+    # catastrophic misses on real-time / geopolitics markets.
+    assert confidence_scale("high") == pytest.approx(0.0)
 
 
 def test_confidence_scale_medium():
-    assert confidence_scale("medium") == pytest.approx(0.6)
+    assert confidence_scale("medium") == pytest.approx(1.0)
 
 
 def test_confidence_scale_low():
-    assert confidence_scale("low") == pytest.approx(0.25)
+    assert confidence_scale("low") == pytest.approx(0.3)
 
 
 def test_confidence_scale_case_insensitive():
-    assert confidence_scale("HIGH") == pytest.approx(1.0)
-    assert confidence_scale(" Medium ") == pytest.approx(0.6)
+    assert confidence_scale("HIGH") == pytest.approx(0.0)
+    assert confidence_scale(" Medium ") == pytest.approx(1.0)
 
 
 def test_confidence_scale_missing_defaults_to_medium():
-    assert confidence_scale(None) == pytest.approx(0.6)
-    assert confidence_scale("") == pytest.approx(0.6)
+    assert confidence_scale(None) == pytest.approx(1.0)
+    assert confidence_scale("") == pytest.approx(1.0)
 
 
 def test_confidence_scale_unknown_defaults_to_medium():
-    assert confidence_scale("very-sure") == pytest.approx(0.6)
+    assert confidence_scale("very-sure") == pytest.approx(1.0)
