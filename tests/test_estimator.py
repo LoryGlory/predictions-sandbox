@@ -244,3 +244,27 @@ async def test_estimate_default_does_not_use_search(monkeypatch):
     result = await e.estimate("Boring question?")
     assert captured["use_search"] is False
     assert result.used_web_search is False
+
+
+@pytest.mark.asyncio
+async def test_estimate_prefills_opening_brace(monkeypatch):
+    """Messages must include an assistant prefill of '{' to force JSON output."""
+    e = make_estimator()
+    captured: dict = {}
+
+    def fake_call_api(model, max_tokens, system, messages, use_search=False):
+        captured["messages"] = messages
+        captured["max_tokens"] = max_tokens
+        # Simulate Claude continuing from the "{" prefill — response omits opener
+        raw_without_opener = valid_response()[1:]  # drop leading "{"
+        return raw_without_opener, False
+
+    monkeypatch.setattr(e, "_call_api", fake_call_api)
+    result = await e.estimate("Will X happen?")
+    # Verify prefill was sent
+    assert len(captured["messages"]) == 2
+    assert captured["messages"][1] == {"role": "assistant", "content": "{"}
+    # Verify max_tokens was raised for longer responses
+    assert captured["max_tokens"] >= 2048
+    # Verify the prefill is reattached and parsing succeeds
+    assert result.estimated_probability == pytest.approx(0.72)

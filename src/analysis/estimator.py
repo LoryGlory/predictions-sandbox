@@ -121,15 +121,27 @@ class Estimator:
             question, context, market_price, category,
         )
 
+        # Prefill "{" as the assistant's opening token — forces Claude to
+        # continue as JSON rather than prose chain-of-thought. Reliable fix
+        # for truncated responses where reasoning eats the max_tokens budget
+        # before JSON output. We prepend "{" back on the parser side.
+        messages = [
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": "{"},
+        ]
+
         # Anthropic SDK is sync; wrap in asyncio.to_thread for async pipelines
         raw, used_search = await asyncio.to_thread(
             self._call_api,
             model=self._model,
-            max_tokens=1024,
+            max_tokens=2048,
             system=prompt_mod.SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
+            messages=messages,
             use_search=use_search,
         )
+        # Restore the prefilled "{" before parsing
+        if not raw.lstrip().startswith("{"):
+            raw = "{" + raw
         result = self._parse_response(raw, model=self._model)
         result.prompt_version = prompt_mod.VERSION
         result.used_web_search = used_search
