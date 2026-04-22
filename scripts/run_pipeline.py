@@ -28,7 +28,7 @@ from src.markets.scanner import filter_markets, filter_polymarket_markets
 from src.notifications.telegram import notify_error
 from src.tracking.logger import setup_logging
 from src.trading.executor import TradeExecutor
-from src.trading.kelly import kelly_bet_size
+from src.trading.kelly import confidence_scale, kelly_bet_size
 from src.trading.risk import BudgetGuardian
 
 logger = logging.getLogger(__name__)
@@ -172,6 +172,7 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
             kelly_fraction_multiplier=settings.kelly_fraction,
             max_position_pct=0.05,
         )
+        bet *= confidence_scale(estimate.confidence)
 
         # Use ask price for realistic execution simulation
         trade = await executor.execute(
@@ -385,6 +386,7 @@ async def run_cycle() -> None:
                     kelly_fraction_multiplier=settings.kelly_fraction,
                     max_position_pct=0.05,
                 )
+                bet *= confidence_scale(estimate.confidence)
 
                 trade = await executor.execute(
                     market=market,

@@ -69,3 +69,22 @@ def kelly_bet_size(
     fractional = f_star * kelly_fraction_multiplier
     max_bet = bankroll * max_position_pct
     return min(fractional * bankroll, max_bet)
+
+
+_CONFIDENCE_SCALE = {
+    "low": 0.25,
+    "medium": 0.6,
+    "high": 1.0,
+}
+
+
+def confidence_scale(confidence: str | None) -> float:
+    """Map Claude's self-reported confidence to a bet-size multiplier.
+
+    Returns a scalar in [0.25, 1.0]. Unknown or missing confidence defaults to
+    medium (0.6) — we shouldn't skip predictions just because the model forgot
+    to set the field.
+    """
+    if not confidence:
+        return _CONFIDENCE_SCALE["medium"]
+    return _CONFIDENCE_SCALE.get(confidence.lower().strip(), _CONFIDENCE_SCALE["medium"])

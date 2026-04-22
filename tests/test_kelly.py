@@ -9,7 +9,7 @@ Fractional Kelly multiplies f* by kelly_fraction (e.g. 0.25).
 """
 import pytest
 
-from src.trading.kelly import kelly_bet_size, kelly_fraction
+from src.trading.kelly import confidence_scale, kelly_bet_size, kelly_fraction
 
 
 def test_kelly_fraction_positive_edge():
@@ -85,3 +85,32 @@ def test_kelly_fraction_non_symmetric_market():
     # f* = (0.6667*0.80 - 0.20) / 0.6667 = (0.5333 - 0.20) / 0.6667 = 0.3333/0.6667 = 0.50
     result = kelly_fraction(our_prob=0.80, market_price=0.60)
     assert result == pytest.approx(0.50, abs=1e-4)
+
+
+# ── confidence_scale tests ──────────────────────────────────────────────
+
+
+def test_confidence_scale_high():
+    assert confidence_scale("high") == pytest.approx(1.0)
+
+
+def test_confidence_scale_medium():
+    assert confidence_scale("medium") == pytest.approx(0.6)
+
+
+def test_confidence_scale_low():
+    assert confidence_scale("low") == pytest.approx(0.25)
+
+
+def test_confidence_scale_case_insensitive():
+    assert confidence_scale("HIGH") == pytest.approx(1.0)
+    assert confidence_scale(" Medium ") == pytest.approx(0.6)
+
+
+def test_confidence_scale_missing_defaults_to_medium():
+    assert confidence_scale(None) == pytest.approx(0.6)
+    assert confidence_scale("") == pytest.approx(0.6)
+
+
+def test_confidence_scale_unknown_defaults_to_medium():
+    assert confidence_scale("very-sure") == pytest.approx(0.6)
