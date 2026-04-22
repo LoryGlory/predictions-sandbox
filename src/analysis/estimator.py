@@ -121,27 +121,18 @@ class Estimator:
             question, context, market_price, category,
         )
 
-        # Prefill "{" as the assistant's opening token — forces Claude to
-        # continue as JSON rather than prose chain-of-thought. Reliable fix
-        # for truncated responses where reasoning eats the max_tokens budget
-        # before JSON output. We prepend "{" back on the parser side.
-        messages = [
-            {"role": "user", "content": user_message},
-            {"role": "assistant", "content": "{"},
-        ]
-
-        # Anthropic SDK is sync; wrap in asyncio.to_thread for async pipelines
+        # Anthropic SDK is sync; wrap in asyncio.to_thread for async pipelines.
+        # max_tokens=4096 gives Claude enough headroom for chain-of-thought
+        # reasoning plus the final JSON. Sonnet 4.6 doesn't support assistant
+        # prefill, so we rely on max_tokens + prompt enforcement.
         raw, used_search = await asyncio.to_thread(
             self._call_api,
             model=self._model,
-            max_tokens=2048,
+            max_tokens=4096,
             system=prompt_mod.SYSTEM_PROMPT,
-            messages=messages,
+            messages=[{"role": "user", "content": user_message}],
             use_search=use_search,
         )
-        # Restore the prefilled "{" before parsing
-        if not raw.lstrip().startswith("{"):
-            raw = "{" + raw
         result = self._parse_response(raw, model=self._model)
         result.prompt_version = prompt_mod.VERSION
         result.used_web_search = used_search
@@ -153,16 +144,24 @@ class Estimator:
 
     @staticmethod
     def _extract_json(raw: str) -> str:
-        """Strip markdown code fences and leading prose to extract JSON."""
+        """Strip markdown code fences and prose to extract JSON.
+
+        Claude sometimes writes chain-of-thought prose followed by the JSON
+        output. We look for code-fenced JSON first, then fall back to the
+        LAST JSON object in the raw text (last match because CoT prose earlier
+        in the response might mention `estimated_probability` in plain English).
+        """
         import re
         # Try to extract JSON from ```json ... ``` blocks
         match = re.search(r"```(?:json)?\s*\n?(\{[^`]*\})\s*\n?```", raw, re.DOTALL)
         if match:
             return match.group(1)
-        # Try to find a raw JSON object in the response
-        match = re.search(r"\{[^{}]*\"estimated_probability\"[^{}]*\}", raw, re.DOTALL)
-        if match:
-            return match.group(0)
+        # Find the LAST JSON object containing "estimated_probability"
+        matches = re.findall(
+            r"\{[^{}]*\"estimated_probability\"[^{}]*\}", raw, re.DOTALL,
+        )
+        if matches:
+            return matches[-1]
         return raw
 
     def _parse_response(self, raw: str, model: str) -> ProbabilityEstimate:
