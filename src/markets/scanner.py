@@ -14,7 +14,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from config.settings import CATEGORY_BLACKLIST, CATEGORY_WHITELIST, settings
+from config.settings import CATEGORY_BLACKLIST, CATEGORY_WHITELIST, REALTIME_TAGS, settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,18 @@ _LOW_SIGNAL_PATTERNS = [
 
 _BLACKLIST_SET = frozenset(CATEGORY_BLACKLIST)
 _WHITELIST_SET = frozenset(CATEGORY_WHITELIST)
+_REALTIME_SET = frozenset(REALTIME_TAGS)
+
+
+def needs_realtime_search(tags: list[str] | None) -> bool:
+    """Return True if a market's tags suggest it needs real-time information.
+
+    Used to decide whether to enable Claude's web_search tool. These are the
+    categories where Claude's training cutoff causes catastrophic misses.
+    """
+    if not tags:
+        return False
+    return bool(set(tags) & _REALTIME_SET)
 
 # Non-ASCII-heavy titles signal non-English markets where Claude's reasoning degrades
 _MIN_ASCII_RATIO = 0.5

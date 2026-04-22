@@ -8,6 +8,7 @@ from src.markets.scanner import (
     get_tags,
     is_polymarket_tradeable,
     is_tradeable,
+    needs_realtime_search,
 )
 
 
@@ -295,3 +296,23 @@ def test_polymarket_rejects_low_volume():
 
 def test_polymarket_rejects_invalid_outcomes_string():
     assert is_polymarket_tradeable(_poly_market(outcomes="not valid json")) is False
+
+
+# ── needs_realtime_search tests ─────────────────────────────────────────
+
+
+def test_realtime_search_triggered_by_iran_tag():
+    assert needs_realtime_search(["iran", "politics"]) is True
+
+
+def test_realtime_search_triggered_by_middle_east():
+    assert needs_realtime_search(["middle-east"]) is True
+
+
+def test_realtime_search_not_triggered_for_stable_categories():
+    assert needs_realtime_search(["competitive-gaming", "esports"]) is False
+
+
+def test_realtime_search_empty_tags():
+    assert needs_realtime_search([]) is False
+    assert needs_realtime_search(None) is False

@@ -204,3 +204,43 @@ def test_prompt_version_stored_on_estimate():
     result = e._parse_response(valid_response(), model="claude-test")
     # prompt_version defaults to "" when not set via estimate()
     assert result.prompt_version == ""
+
+
+# ── Web search integration tests ────────────────────────────────────────
+
+
+def test_used_web_search_defaults_to_false():
+    e = make_estimator()
+    result = e._parse_response(valid_response(), model="claude-test")
+    assert result.used_web_search is False
+
+
+@pytest.mark.asyncio
+async def test_estimate_passes_use_search_flag(monkeypatch):
+    """When use_search=True, the tool arg should propagate and flag the result."""
+    e = make_estimator()
+    captured: dict = {}
+
+    def fake_call_api(model, max_tokens, system, messages, use_search=False):
+        captured["use_search"] = use_search
+        return valid_response(), use_search  # pretend search was used iff requested
+
+    monkeypatch.setattr(e, "_call_api", fake_call_api)
+    result = await e.estimate("Will Iran do X?", use_search=True)
+    assert captured["use_search"] is True
+    assert result.used_web_search is True
+
+
+@pytest.mark.asyncio
+async def test_estimate_default_does_not_use_search(monkeypatch):
+    e = make_estimator()
+    captured: dict = {}
+
+    def fake_call_api(model, max_tokens, system, messages, use_search=False):
+        captured["use_search"] = use_search
+        return valid_response(), False
+
+    monkeypatch.setattr(e, "_call_api", fake_call_api)
+    result = await e.estimate("Boring question?")
+    assert captured["use_search"] is False
+    assert result.used_web_search is False

@@ -19,5 +19,9 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await db.execute(
             "ALTER TABLE predictions ADD COLUMN prompt_version TEXT"
         )
+    if "used_web_search" not in columns:
+        await db.execute(
+            "ALTER TABLE predictions ADD COLUMN used_web_search INTEGER NOT NULL DEFAULT 0"
+        )
 
     await db.commit()

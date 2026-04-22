@@ -32,6 +32,7 @@ class ProbabilityEstimate:
     model: str
     raw_response: str        # keep for debugging
     prompt_version: str = ""
+    used_web_search: bool = False
 
 
 class Estimator:
@@ -47,18 +48,45 @@ class Estimator:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         reraise=True,
     )
-    def _call_api(self, model: str, max_tokens: int, system: str, messages: Any) -> str:
-        """Call Claude API with retry. Returns raw response text."""
-        response = self._client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
+    def _call_api(
+        self,
+        model: str,
+        max_tokens: int,
+        system: str,
+        messages: Any,
+        use_search: bool = False,
+    ) -> tuple[str, bool]:
+        """Call Claude API with retry. Returns (raw_text, used_web_search)."""
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": messages,
+        }
+        if use_search:
+            kwargs["tools"] = [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3,
+            }]
+
+        response = self._client.messages.create(**kwargs)
+
+        # When tool use is enabled, response.content can have multiple blocks
+        # (tool_use, tool_result, final text). We need the last TextBlock.
+        text_blocks = [
+            b for b in response.content if isinstance(b, anthropic.types.TextBlock)
+        ]
+        if not text_blocks:
+            raise ValueError(f"No text block in response: {response.content}")
+
+        # Detect whether search was actually invoked
+        used_search = any(
+            getattr(b, "type", None) in ("server_tool_use", "web_search_tool_result")
+            for b in response.content
         )
-        block = response.content[0]
-        if not isinstance(block, anthropic.types.TextBlock):
-            raise ValueError(f"Unexpected response block type: {type(block)}")
-        return block.text
+
+        return text_blocks[-1].text, used_search
 
     async def estimate(
         self,
@@ -67,6 +95,7 @@ class Estimator:
         market_price: float | None = None,
         category: str | None = None,
         prompt_version: str | None = None,
+        use_search: bool = False,
     ) -> ProbabilityEstimate:
         """Get a probability estimate from Claude for a market question.
 
@@ -76,6 +105,8 @@ class Estimator:
             market_price: Current market price (shown to Claude for reference).
             category: Market category (used for category-specific hints in v2).
             prompt_version: Override prompt version (for A/B testing).
+            use_search: If True, enable Anthropic's web_search tool so Claude
+                can fetch current information before estimating.
 
         Returns:
             Parsed ProbabilityEstimate.
@@ -91,15 +122,17 @@ class Estimator:
         )
 
         # Anthropic SDK is sync; wrap in asyncio.to_thread for async pipelines
-        raw = await asyncio.to_thread(
+        raw, used_search = await asyncio.to_thread(
             self._call_api,
             model=self._model,
             max_tokens=1024,
             system=prompt_mod.SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
+            use_search=use_search,
         )
         result = self._parse_response(raw, model=self._model)
         result.prompt_version = prompt_mod.VERSION
+        result.used_web_search = used_search
         return result
 
     def should_ab_test(self) -> bool:

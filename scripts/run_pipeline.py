@@ -24,7 +24,7 @@ from src.content.story_collector import check_big_edge, check_cost_milestone
 from src.db.connection import get_db
 from src.markets.manifold import ManifoldClient
 from src.markets.polymarket import PolymarketClient
-from src.markets.scanner import filter_markets, filter_polymarket_markets
+from src.markets.scanner import filter_markets, filter_polymarket_markets, needs_realtime_search
 from src.notifications.telegram import notify_error
 from src.tracking.logger import setup_logging
 from src.trading.executor import TradeExecutor
@@ -117,9 +117,11 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
             break
 
         category = tags[0] if tags else None
+        use_search = needs_realtime_search(tags)
         try:
             estimate = await estimator.estimate(
                 question, market_price=market_price, category=category,
+                use_search=use_search,
             )
         except Exception as e:
             logger.error("Polymarket estimation failed for %s: %s", question[:60], e)
@@ -128,12 +130,13 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
         # Log prediction
         await db.execute(
             """INSERT INTO predictions
-               (market_id, model, estimated_prob, market_price, confidence, reasoning, prompt_version)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (market_id, model, estimated_prob, market_price, confidence,
+                reasoning, prompt_version, used_web_search)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 market_db_id, estimate.model, estimate.estimated_probability,
                 market_price, estimate.confidence, estimate.reasoning,
-                estimate.prompt_version,
+                estimate.prompt_version, int(estimate.used_web_search),
             ),
         )
         await db.commit()
@@ -285,11 +288,13 @@ async def run_cycle() -> None:
 
                 # Extract category for prompt hints
                 category = (raw_tags[0] if raw_tags else None)
+                use_search = needs_realtime_search(raw_tags)
 
                 # Get Claude's estimate
                 try:
                     estimate = await estimator.estimate(
                         question, market_price=market_price, category=category,
+                        use_search=use_search,
                     )
                 except Exception as e:
                     logger.error("Estimation failed for %s: %s", question[:60], e)
@@ -298,8 +303,9 @@ async def run_cycle() -> None:
                 # Log prediction
                 await db.execute(
                     """INSERT INTO predictions
-                       (market_id, model, estimated_prob, market_price, confidence, reasoning, prompt_version)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (market_id, model, estimated_prob, market_price, confidence,
+                        reasoning, prompt_version, used_web_search)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         market_db_id,
                         estimate.model,
@@ -308,6 +314,7 @@ async def run_cycle() -> None:
                         estimate.confidence,
                         estimate.reasoning,
                         estimate.prompt_version,
+                        int(estimate.used_web_search),
                     ),
                 )
                 await db.commit()

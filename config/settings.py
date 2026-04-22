@@ -42,10 +42,18 @@ CATEGORY_BLACKLIST: list[str] = [
     "football",
     "crypto-speculation",
     "elections",
-    # Real-time geopolitics — Claude lacks live intel, skill score -1.06
+]
+
+
+# Tags that trigger the web_search tool — markets where Claude's training-data
+# cutoff makes it unreliable without live information. Previously these were
+# blacklisted; now they flow through but with search enabled.
+REALTIME_TAGS: list[str] = [
     "iran",
     "middle-east",
     "israeliran-conflict",
+    "breaking-news",
+    "current-events",
 ]
 
 
