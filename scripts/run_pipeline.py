@@ -117,7 +117,7 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
             break
 
         category = tags[0] if tags else None
-        use_search = needs_realtime_search(tags)
+        use_search = needs_realtime_search(tags, question)
         try:
             estimate = await estimator.estimate(
                 question, market_price=market_price, category=category,
@@ -288,7 +288,7 @@ async def run_cycle() -> None:
 
                 # Extract category for prompt hints
                 category = (raw_tags[0] if raw_tags else None)
-                use_search = needs_realtime_search(raw_tags)
+                use_search = needs_realtime_search(raw_tags, question)
 
                 # Get Claude's estimate
                 try:

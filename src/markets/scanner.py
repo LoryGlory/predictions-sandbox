@@ -32,16 +32,45 @@ _BLACKLIST_SET = frozenset(CATEGORY_BLACKLIST)
 _WHITELIST_SET = frozenset(CATEGORY_WHITELIST)
 _REALTIME_SET = frozenset(REALTIME_TAGS)
 
+# Keywords in the question text that suggest real-time information is needed.
+# Compiled as word-boundary regex so "war" matches " war " but not "warehouse".
+# Kept conservative — Claude's native reasoning is fine for most topics, and
+# each match costs a web_search API call.
+_REALTIME_KEYWORDS = [
+    # Active conflicts / foreign policy
+    "iran", "israel", "ukraine", "russia", "gaza", "palestine", "yemen",
+    "hamas", "hezbollah", "taiwan",
+    # Conflict-specific terms
+    "ceasefire", "blockade", "invasion", "airstrike", "missile strike",
+    # Breaking-event indicators in question text
+    "today", "tonight", "this week",
+]
+_REALTIME_KEYWORDS_RE = re.compile(
+    r"\b(" + "|".join(re.escape(k) for k in _REALTIME_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
 
-def needs_realtime_search(tags: list[str] | None) -> bool:
-    """Return True if a market's tags suggest it needs real-time information.
 
-    Used to decide whether to enable Claude's web_search tool. These are the
-    categories where Claude's training cutoff causes catastrophic misses.
+def needs_realtime_search(
+    tags: list[str] | None,
+    question: str | None = None,
+) -> bool:
+    """Return True if a market needs real-time information to answer well.
+
+    Used to decide whether to enable Claude's web_search tool. Checks two signals:
+      1. Market tags overlap with REALTIME_TAGS (reliable when tags are present)
+      2. Question text contains keywords about active conflicts or time-sensitive
+         events (fallback for Manifold, which doesn't return tags from its list
+         endpoint)
+
+    Either signal triggers search. Keep the keyword list conservative — each
+    match costs a web_search API call.
     """
-    if not tags:
-        return False
-    return bool(set(tags) & _REALTIME_SET)
+    if tags and (set(tags) & _REALTIME_SET):
+        return True
+    if question and _REALTIME_KEYWORDS_RE.search(question):
+        return True
+    return False
 
 # Non-ASCII-heavy titles signal non-English markets where Claude's reasoning degrades
 _MIN_ASCII_RATIO = 0.5

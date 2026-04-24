@@ -316,3 +316,32 @@ def test_realtime_search_not_triggered_for_stable_categories():
 def test_realtime_search_empty_tags():
     assert needs_realtime_search([]) is False
     assert needs_realtime_search(None) is False
+
+
+# Keyword-based detection (fallback when tags are missing)
+
+
+def test_realtime_search_keyword_iran_in_question():
+    assert needs_realtime_search([], "Will Iran accept the ceasefire?") is True
+
+
+def test_realtime_search_keyword_ceasefire_in_question():
+    assert needs_realtime_search([], "Will the ceasefire hold past May?") is True
+
+
+def test_realtime_search_keyword_case_insensitive():
+    assert needs_realtime_search(None, "Will RUSSIA strike Kyiv again?") is True
+
+
+def test_realtime_search_keyword_word_boundary():
+    # "warehouse" contains "war" as substring but shouldn't trigger
+    assert needs_realtime_search([], "Will the new warehouse open by June?") is False
+
+
+def test_realtime_search_no_trigger_on_stable_question():
+    assert needs_realtime_search([], "Will Sabrina Carpenter's video cross 20M views?") is False
+
+
+def test_realtime_search_tags_take_precedence():
+    # If tags match, question doesn't need to
+    assert needs_realtime_search(["middle-east"], "Something unrelated") is True
