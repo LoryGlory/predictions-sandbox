@@ -119,7 +119,11 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
         category = tags[0] if tags else None
         use_search = needs_realtime_search(tags, question)
         try:
-            estimate = await estimator.estimate(
+            estimate_fn = (
+                estimator.estimate_ensemble if settings.ensemble_enabled
+                else estimator.estimate
+            )
+            estimate = await estimate_fn(
                 question, market_price=market_price, category=category,
                 use_search=use_search,
             )
@@ -128,15 +132,19 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
             continue
 
         # Log prediction
+        samples_json = (
+            json.dumps(estimate.ensemble_samples) if estimate.ensemble_samples else None
+        )
         await db.execute(
             """INSERT INTO predictions
                (market_id, model, estimated_prob, market_price, confidence,
-                reasoning, prompt_version, used_web_search)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                reasoning, prompt_version, used_web_search, ensemble_samples)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 market_db_id, estimate.model, estimate.estimated_probability,
                 market_price, estimate.confidence, estimate.reasoning,
                 estimate.prompt_version, int(estimate.used_web_search),
+                samples_json,
             ),
         )
         await db.commit()
@@ -148,7 +156,7 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
                ON CONFLICT(date) DO UPDATE SET
                    calls = calls + 1,
                    est_cost_usd = est_cost_usd + excluded.est_cost_usd""",
-            (COST_PER_ESTIMATE_USD,),
+            (COST_PER_ESTIMATE_USD * (settings.ensemble_samples if settings.ensemble_enabled else 1),),
         )
         await db.commit()
 
@@ -292,7 +300,11 @@ async def run_cycle() -> None:
 
                 # Get Claude's estimate
                 try:
-                    estimate = await estimator.estimate(
+                    estimate_fn = (
+                        estimator.estimate_ensemble if settings.ensemble_enabled
+                        else estimator.estimate
+                    )
+                    estimate = await estimate_fn(
                         question, market_price=market_price, category=category,
                         use_search=use_search,
                     )
@@ -301,11 +313,15 @@ async def run_cycle() -> None:
                     continue
 
                 # Log prediction
+                samples_json = (
+                    json.dumps(estimate.ensemble_samples)
+                    if estimate.ensemble_samples else None
+                )
                 await db.execute(
                     """INSERT INTO predictions
                        (market_id, model, estimated_prob, market_price, confidence,
-                        reasoning, prompt_version, used_web_search)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        reasoning, prompt_version, used_web_search, ensemble_samples)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         market_db_id,
                         estimate.model,
@@ -315,6 +331,7 @@ async def run_cycle() -> None:
                         estimate.reasoning,
                         estimate.prompt_version,
                         int(estimate.used_web_search),
+                        samples_json,
                     ),
                 )
                 await db.commit()
@@ -356,7 +373,7 @@ async def run_cycle() -> None:
                        ON CONFLICT(date) DO UPDATE SET
                            calls = calls + 1,
                            est_cost_usd = est_cost_usd + excluded.est_cost_usd""",
-                    (COST_PER_ESTIMATE_USD,),
+                    (COST_PER_ESTIMATE_USD * (settings.ensemble_samples if settings.ensemble_enabled else 1),),
                 )
                 await db.commit()
 

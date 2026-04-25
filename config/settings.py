@@ -116,5 +116,12 @@ class Settings:
         os.getenv("NIGHTLY_REPORT_ENABLED", "true")
     )
 
+    # Ensemble estimator — run multiple Claude calls at different temperatures
+    # and average the probabilities. Costs N× per call, so default is off.
+    ensemble_enabled: bool = _parse_bool(
+        os.getenv("ENSEMBLE_ENABLED", "false")
+    )
+    ensemble_samples: int = int(os.getenv("ENSEMBLE_SAMPLES", "3"))
+
 
 settings = Settings()

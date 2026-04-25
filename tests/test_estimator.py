@@ -2,6 +2,7 @@
 
 No API calls — we test _parse_response directly and the prompt builder.
 """
+import asyncio
 import json
 
 import pytest
@@ -221,7 +222,7 @@ async def test_estimate_passes_use_search_flag(monkeypatch):
     e = make_estimator()
     captured: dict = {}
 
-    def fake_call_api(model, max_tokens, system, messages, use_search=False):
+    def fake_call_api(model, max_tokens, system, messages, use_search=False, temperature=None):
         captured["use_search"] = use_search
         return valid_response(), use_search  # pretend search was used iff requested
 
@@ -236,7 +237,7 @@ async def test_estimate_default_does_not_use_search(monkeypatch):
     e = make_estimator()
     captured: dict = {}
 
-    def fake_call_api(model, max_tokens, system, messages, use_search=False):
+    def fake_call_api(model, max_tokens, system, messages, use_search=False, temperature=None):
         captured["use_search"] = use_search
         return valid_response(), False
 
@@ -252,7 +253,7 @@ async def test_estimate_uses_generous_max_tokens(monkeypatch):
     e = make_estimator()
     captured: dict = {}
 
-    def fake_call_api(model, max_tokens, system, messages, use_search=False):
+    def fake_call_api(model, max_tokens, system, messages, use_search=False, temperature=None):
         captured["max_tokens"] = max_tokens
         captured["messages"] = messages
         return valid_response(), False
@@ -280,3 +281,80 @@ def test_parse_extracts_last_json_when_prose_precedes():
     )
     result = e._parse_response(raw, model="claude-test")
     assert result.estimated_probability == pytest.approx(0.42)
+
+
+# ── Ensemble tests ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ensemble_averages_probabilities(monkeypatch):
+    """estimate_ensemble averages probabilities across samples."""
+    e = make_estimator()
+    call_count = {"n": 0}
+
+    async def fake_estimate(
+        question, context="", market_price=None, category=None,
+        prompt_version=None, use_search=False, temperature=None,
+    ):
+        await asyncio.sleep(0)  # yield control — mirrors real async estimate()
+        call_count["n"] += 1
+        # Vary probabilities by temperature so we can verify averaging
+        probs_by_temp = {0.3: 0.60, 0.7: 0.70, 1.0: 0.80}
+        return ProbabilityEstimate(
+            estimated_probability=probs_by_temp[temperature],
+            confidence="medium",
+            reasoning=f"sample at T={temperature}",
+            factors_for=[], factors_against=[],
+            model="claude-test",
+            raw_response="",
+            prompt_version="v2_market_aware",
+        )
+
+    monkeypatch.setattr(e, "estimate", fake_estimate)
+    result = await e.estimate_ensemble("Will X?")
+
+    # Mean of 0.60, 0.70, 0.80 = 0.70
+    assert result.estimated_probability == pytest.approx(0.70)
+    assert call_count["n"] == 3
+    assert result.ensemble_samples is not None
+    assert len(result.ensemble_samples) == 3
+    assert result.ensemble_samples[0]["temperature"] == pytest.approx(0.3)
+
+
+@pytest.mark.asyncio
+async def test_ensemble_picks_lowest_confidence(monkeypatch):
+    """Confidence across samples should be combined conservatively (lowest wins)."""
+    e = make_estimator()
+    confidences = iter(["high", "medium", "low"])
+
+    async def fake_estimate(**kwargs):
+        await asyncio.sleep(0)
+        return ProbabilityEstimate(
+            estimated_probability=0.5, confidence=next(confidences),
+            reasoning="", factors_for=[], factors_against=[],
+            model="claude-test", raw_response="",
+        )
+
+    monkeypatch.setattr(e, "estimate", fake_estimate)
+    result = await e.estimate_ensemble("Will X?")
+    assert result.confidence == "low"
+
+
+@pytest.mark.asyncio
+async def test_ensemble_used_web_search_any(monkeypatch):
+    """used_web_search is True if any sample used search."""
+    e = make_estimator()
+    flags = iter([False, True, False])
+
+    async def fake_estimate(**kwargs):
+        await asyncio.sleep(0)
+        return ProbabilityEstimate(
+            estimated_probability=0.5, confidence="medium",
+            reasoning="", factors_for=[], factors_against=[],
+            model="claude-test", raw_response="",
+            used_web_search=next(flags),
+        )
+
+    monkeypatch.setattr(e, "estimate", fake_estimate)
+    result = await e.estimate_ensemble("Will X?")
+    assert result.used_web_search is True

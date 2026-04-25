@@ -33,6 +33,14 @@ class ProbabilityEstimate:
     raw_response: str        # keep for debugging
     prompt_version: str = ""
     used_web_search: bool = False
+    # Populated when estimate_ensemble() is used — list of per-sample dicts
+    # like {"temperature": 0.3, "estimated_probability": 0.65, "confidence": "medium"}.
+    # None for single-call estimates.
+    ensemble_samples: list[dict[str, Any]] | None = None
+
+
+# Confidence ordering used by the ensemble to pick the most conservative value.
+_CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
 class Estimator:
@@ -55,6 +63,7 @@ class Estimator:
         system: str,
         messages: Any,
         use_search: bool = False,
+        temperature: float | None = None,
     ) -> tuple[str, bool]:
         """Call Claude API with retry. Returns (raw_text, used_web_search)."""
         kwargs: dict[str, Any] = {
@@ -63,6 +72,8 @@ class Estimator:
             "system": system,
             "messages": messages,
         }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         if use_search:
             kwargs["tools"] = [{
                 "type": "web_search_20250305",
@@ -96,6 +107,7 @@ class Estimator:
         category: str | None = None,
         prompt_version: str | None = None,
         use_search: bool = False,
+        temperature: float | None = None,
     ) -> ProbabilityEstimate:
         """Get a probability estimate from Claude for a market question.
 
@@ -107,6 +119,8 @@ class Estimator:
             prompt_version: Override prompt version (for A/B testing).
             use_search: If True, enable Anthropic's web_search tool so Claude
                 can fetch current information before estimating.
+            temperature: Optional sampling temperature. When None, uses the
+                Anthropic default. Used by estimate_ensemble() to vary samples.
 
         Returns:
             Parsed ProbabilityEstimate.
@@ -132,11 +146,79 @@ class Estimator:
             system=prompt_mod.SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
             use_search=use_search,
+            temperature=temperature,
         )
         result = self._parse_response(raw, model=self._model)
         result.prompt_version = prompt_mod.VERSION
         result.used_web_search = used_search
         return result
+
+    async def estimate_ensemble(
+        self,
+        question: str,
+        context: str = "",
+        market_price: float | None = None,
+        category: str | None = None,
+        prompt_version: str | None = None,
+        use_search: bool = False,
+        temperatures: list[float] | None = None,
+    ) -> ProbabilityEstimate:
+        """Run N Claude estimates in parallel at different temperatures and combine.
+
+        Combining rules:
+        - estimated_probability: mean of the samples
+        - confidence: the LOWEST of the samples (conservative)
+        - used_web_search: True if any sample used it
+        - reasoning / factors / raw_response: taken from the middle-temperature
+          sample (usually the most balanced)
+        - ensemble_samples: list of per-sample dicts for later analysis
+
+        All other kwargs are forwarded to estimate() unchanged. The ensemble is
+        homogeneous — same model, same prompt version — varied only by sampling
+        temperature.
+        """
+        temps = temperatures or [0.3, 0.7, 1.0]
+
+        results = await asyncio.gather(*[
+            self.estimate(
+                question=question, context=context, market_price=market_price,
+                category=category, prompt_version=prompt_version,
+                use_search=use_search, temperature=t,
+            )
+            for t in temps
+        ])
+
+        probs = [r.estimated_probability for r in results]
+        mean_prob = sum(probs) / len(probs)
+
+        lowest_conf = min(results, key=lambda r: _CONFIDENCE_RANK.get(r.confidence, 0)).confidence
+
+        # Pick the middle sample (by temperature) as the representative for
+        # reasoning/factors — usually the most balanced.
+        mid_idx = len(results) // 2
+        mid = results[mid_idx]
+
+        samples = [
+            {
+                "temperature": t,
+                "estimated_probability": r.estimated_probability,
+                "confidence": r.confidence,
+            }
+            for t, r in zip(temps, results, strict=True)
+        ]
+
+        return ProbabilityEstimate(
+            estimated_probability=mean_prob,
+            confidence=lowest_conf,
+            reasoning=f"[ensemble of {len(results)}] {mid.reasoning}",
+            factors_for=mid.factors_for,
+            factors_against=mid.factors_against,
+            model=mid.model,
+            raw_response=mid.raw_response,
+            prompt_version=mid.prompt_version,
+            used_web_search=any(r.used_web_search for r in results),
+            ensemble_samples=samples,
+        )
 
     def should_ab_test(self) -> bool:
         """Return True if this market should get both prompt versions."""
