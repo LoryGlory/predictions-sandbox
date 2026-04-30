@@ -72,19 +72,24 @@ def kelly_bet_size(
 
 
 _CONFIDENCE_SCALE = {
-    "high": 0.0,      # counterintuitive: "high" is where Claude is overconfident
-    "medium": 1.0,    # empirically the only bucket with positive skill
-    "low": 0.3,       # slight skill deficit but still has signal
+    "high": 1.0,
+    "medium": 1.0,
+    "low": 1.0,
 }
 
 
 def confidence_scale(confidence: str | None) -> float:
     """Map Claude's self-reported confidence to a bet-size multiplier.
 
-    Weights are inverted from intuition because retrospective analysis on 609
-    resolved predictions showed "high" confidence correlates with catastrophic
-    misses (Iran geopolitics etc.), while "medium" is the only bucket that
-    beats the market baseline. See scripts/analyze_confidence.py.
+    Currently uniform (1.0 across all confidence levels). Earlier analysis on
+    609 samples suggested inverting the weights (high=0, medium=1, low=0.3)
+    because high-confidence predictions had catastrophic skill scores. On a
+    larger sample (910 resolved), the P&L simulation showed uniform weighting
+    outperforming the inverted scheme — inverted skipped some profitable
+    bets along with the bad ones. See scripts/analyze_confidence.py.
+
+    Wiring kept in place so we can experiment with different weights later
+    without touching the pipeline call sites.
     """
     if not confidence:
         return _CONFIDENCE_SCALE["medium"]

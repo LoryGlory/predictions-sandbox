@@ -24,7 +24,12 @@ from src.content.story_collector import check_big_edge, check_cost_milestone
 from src.db.connection import get_db
 from src.markets.manifold import ManifoldClient
 from src.markets.polymarket import PolymarketClient
-from src.markets.scanner import filter_markets, filter_polymarket_markets, needs_realtime_search
+from src.markets.scanner import (
+    check_category,
+    filter_markets,
+    filter_polymarket_markets,
+    needs_realtime_search,
+)
 from src.notifications.telegram import notify_error
 from src.tracking.logger import setup_logging
 from src.trading.executor import TradeExecutor
@@ -248,8 +253,34 @@ async def run_cycle() -> None:
                 market_price = market.get("probability", 0.5)
                 external_id = market.get("id", "")
 
-                # Extract tags from Manifold market (may be 'groupSlugs', 'tags', or 'groups')
+                # Extract tags. Manifold's list endpoint usually doesn't return
+                # them, so fetch full market details when missing — this is
+                # what unlocks accurate per-category analysis and lets the
+                # blacklist filter actually fire on real tags.
                 raw_tags = market.get("groupSlugs") or market.get("tags") or []
+                if not raw_tags and external_id:
+                    try:
+                        async with ManifoldClient() as detail_client:
+                            full_market = await detail_client.get_market(external_id)
+                        raw_tags = (
+                            full_market.get("groupSlugs")
+                            or full_market.get("tags")
+                            or []
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "Could not enrich tags for %s: %s", external_id, e,
+                        )
+
+                # Re-check category filter now that we have real tags
+                if raw_tags:
+                    passes, reason = check_category({"groupSlugs": raw_tags})
+                    if not passes:
+                        logger.info(
+                            "Skipping (post-enrich): %s — %s", question[:50], reason,
+                        )
+                        continue
+
                 tags_json = json.dumps(raw_tags) if raw_tags else None
 
                 # Upsert market record
