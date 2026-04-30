@@ -107,6 +107,25 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
             if hours_since < 4 and price_moved < 0.03:
                 continue
 
+        # Cap re-estimation frequency: if we've already estimated this market
+        # 3+ times in the last 24h, skip unless price moved >10pp. Targets
+        # NHL-longshot-style spam where small absolute price ticks pass dedup.
+        async with db.execute(
+            """SELECT COUNT(*) as n FROM predictions
+               WHERE market_id = ? AND timestamp > datetime('now','-1 day')""",
+            (market_db_id,),
+        ) as cur:
+            count_row = await cur.fetchone()
+        recent_count = count_row["n"] if count_row else 0
+        if recent_count >= 3 and (
+            not last_pred or abs(market_price - (last_pred["market_price"] or 0)) < 0.10
+        ):
+            logger.info(
+                "Skipping %s — already estimated %d times today",
+                question[:40], recent_count,
+            )
+            continue
+
         # API budget check
         async with db.execute(
             "SELECT est_cost_usd FROM api_cost_log WHERE date = date('now')",
@@ -275,6 +294,24 @@ async def run_cycle() -> None:
                             question[:40], hours_since, price_moved * 100,
                         )
                         continue
+
+                # Daily call cap per market — skip after 3 estimates unless big move
+                async with db.execute(
+                    """SELECT COUNT(*) as n FROM predictions
+                       WHERE market_id = ? AND timestamp > datetime('now','-1 day')""",
+                    (market_db_id,),
+                ) as cur:
+                    count_row = await cur.fetchone()
+                recent_count = count_row["n"] if count_row else 0
+                if recent_count >= 3 and (
+                    not last_pred
+                    or abs(market_price - (last_pred["market_price"] or 0)) < 0.10
+                ):
+                    logger.info(
+                        "Skipping %s — already estimated %d times today",
+                        question[:40], recent_count,
+                    )
+                    continue
 
                 # Check daily API budget before calling Claude
                 async with db.execute(
