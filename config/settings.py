@@ -40,6 +40,8 @@ CATEGORY_BLACKLIST: list[str] = [
     "sports-betting",
     "sports-default",
     "football",
+    "basketball",
+    "college-basketball",
     "crypto-speculation",
     "elections",
 ]
