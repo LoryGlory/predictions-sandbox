@@ -42,8 +42,11 @@ CATEGORY_BLACKLIST: list[str] = [
     "football",
     "basketball",
     "college-basketball",
+    "march-madness",
     "crypto-speculation",
     "elections",
+    "economics-default",
+    "stocks",
 ]
 
 
