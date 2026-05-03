@@ -37,10 +37,28 @@ class ProbabilityEstimate:
     # like {"temperature": 0.3, "estimated_probability": 0.65, "confidence": "medium"}.
     # None for single-call estimates.
     ensemble_samples: list[dict[str, Any]] | None = None
+    # Real USD cost of this estimate, computed from response.usage tokens
+    # plus any web_search invocations. Sums across ensemble samples.
+    cost_usd: float = 0.0
 
 
 # Confidence ordering used by the ensemble to pick the most conservative value.
 _CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+
+# Claude Sonnet 4.6 pricing (USD per million tokens). Update if model changes.
+SONNET_INPUT_COST_PER_M = 3.0
+SONNET_OUTPUT_COST_PER_M = 15.0
+# Anthropic web_search tool pricing — $10 per 1000 searches.
+WEB_SEARCH_COST_PER_CALL = 0.01
+
+
+def _compute_cost(input_tokens: int, output_tokens: int, search_calls: int) -> float:
+    """Compute USD cost for one Anthropic API call from token usage."""
+    token_cost = (
+        input_tokens * SONNET_INPUT_COST_PER_M
+        + output_tokens * SONNET_OUTPUT_COST_PER_M
+    ) / 1_000_000
+    return token_cost + search_calls * WEB_SEARCH_COST_PER_CALL
 
 
 class Estimator:
@@ -64,8 +82,8 @@ class Estimator:
         messages: Any,
         use_search: bool = False,
         temperature: float | None = None,
-    ) -> tuple[str, bool]:
-        """Call Claude API with retry. Returns (raw_text, used_web_search)."""
+    ) -> tuple[str, bool, float]:
+        """Call Claude API with retry. Returns (raw_text, used_web_search, cost_usd)."""
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
@@ -91,13 +109,24 @@ class Estimator:
         if not text_blocks:
             raise ValueError(f"No text block in response: {response.content}")
 
-        # Detect whether search was actually invoked
-        used_search = any(
-            getattr(b, "type", None) in ("server_tool_use", "web_search_tool_result")
+        # Detect whether search was actually invoked, and count invocations
+        search_calls = sum(
+            1 for b in response.content
+            if getattr(b, "type", None) == "server_tool_use"
+            and getattr(b, "name", None) == "web_search"
+        )
+        used_search = bool(search_calls) or any(
+            getattr(b, "type", None) == "web_search_tool_result"
             for b in response.content
         )
 
-        return text_blocks[-1].text, used_search
+        # Real cost from token usage + web_search calls
+        usage = getattr(response, "usage", None)
+        input_tokens = getattr(usage, "input_tokens", 0) if usage else 0
+        output_tokens = getattr(usage, "output_tokens", 0) if usage else 0
+        cost = _compute_cost(input_tokens, output_tokens, search_calls)
+
+        return text_blocks[-1].text, used_search, cost
 
     async def estimate(
         self,
@@ -139,7 +168,7 @@ class Estimator:
         # max_tokens=4096 gives Claude enough headroom for chain-of-thought
         # reasoning plus the final JSON. Sonnet 4.6 doesn't support assistant
         # prefill, so we rely on max_tokens + prompt enforcement.
-        raw, used_search = await asyncio.to_thread(
+        raw, used_search, cost = await asyncio.to_thread(
             self._call_api,
             model=self._model,
             max_tokens=4096,
@@ -151,6 +180,7 @@ class Estimator:
         result = self._parse_response(raw, model=self._model)
         result.prompt_version = prompt_mod.VERSION
         result.used_web_search = used_search
+        result.cost_usd = cost
         return result
 
     async def estimate_ensemble(
@@ -218,6 +248,7 @@ class Estimator:
             prompt_version=mid.prompt_version,
             used_web_search=any(r.used_web_search for r in results),
             ensemble_samples=samples,
+            cost_usd=sum(r.cost_usd for r in results),
         )
 
     def should_ab_test(self) -> bool:

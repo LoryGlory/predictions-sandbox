@@ -11,7 +11,7 @@ from config.prompts.v1_baseline import SYSTEM_PROMPT as V1_SYSTEM
 from config.prompts.v1_baseline import build_user_prompt as v1_prompt
 from config.prompts.v2_market_aware import SYSTEM_PROMPT as V2_SYSTEM
 from config.prompts.v2_market_aware import build_user_prompt as v2_prompt
-from src.analysis.estimator import Estimator, ProbabilityEstimate
+from src.analysis.estimator import Estimator, ProbabilityEstimate, _compute_cost
 from src.analysis.prompts import MARKET_ANALYSIS_SYSTEM, market_analysis_prompt
 
 # ── Prompt builder tests ────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ async def test_estimate_passes_use_search_flag(monkeypatch):
 
     def fake_call_api(model, max_tokens, system, messages, use_search=False, temperature=None):
         captured["use_search"] = use_search
-        return valid_response(), use_search  # pretend search was used iff requested
+        return valid_response(), use_search, 0.0  # (text, used_search, cost)
 
     monkeypatch.setattr(e, "_call_api", fake_call_api)
     result = await e.estimate("Will Iran do X?", use_search=True)
@@ -239,7 +239,7 @@ async def test_estimate_default_does_not_use_search(monkeypatch):
 
     def fake_call_api(model, max_tokens, system, messages, use_search=False, temperature=None):
         captured["use_search"] = use_search
-        return valid_response(), False
+        return valid_response(), False, 0.0
 
     monkeypatch.setattr(e, "_call_api", fake_call_api)
     result = await e.estimate("Boring question?")
@@ -256,7 +256,7 @@ async def test_estimate_uses_generous_max_tokens(monkeypatch):
     def fake_call_api(model, max_tokens, system, messages, use_search=False, temperature=None):
         captured["max_tokens"] = max_tokens
         captured["messages"] = messages
-        return valid_response(), False
+        return valid_response(), False, 0.0
 
     monkeypatch.setattr(e, "_call_api", fake_call_api)
     result = await e.estimate("Will X happen?")
@@ -358,3 +358,54 @@ async def test_ensemble_used_web_search_any(monkeypatch):
     monkeypatch.setattr(e, "estimate", fake_estimate)
     result = await e.estimate_ensemble("Will X?")
     assert result.used_web_search is True
+
+
+# ── Cost computation tests ──────────────────────────────────────────────
+
+
+def test_compute_cost_input_only():
+    # 1M input tokens × $3/M = $3.00
+    assert _compute_cost(input_tokens=1_000_000, output_tokens=0, search_calls=0) == pytest.approx(3.0)
+
+
+def test_compute_cost_output_only():
+    # 1M output tokens × $15/M = $15.00
+    assert _compute_cost(input_tokens=0, output_tokens=1_000_000, search_calls=0) == pytest.approx(15.0)
+
+
+def test_compute_cost_typical_estimate():
+    # Realistic per-call: 600 input, 1000 output, 0 searches
+    # = (600 × 3 + 1000 × 15) / 1_000_000 = (1800 + 15000) / 1M = $0.0168
+    cost = _compute_cost(input_tokens=600, output_tokens=1000, search_calls=0)
+    assert cost == pytest.approx(0.0168)
+
+
+def test_compute_cost_with_search():
+    # 600/1000 tokens + 2 searches = $0.0168 + $0.02 = $0.0368
+    cost = _compute_cost(input_tokens=600, output_tokens=1000, search_calls=2)
+    assert cost == pytest.approx(0.0368)
+
+
+def test_compute_cost_zero_tokens():
+    # No usage info → no cost
+    assert _compute_cost(input_tokens=0, output_tokens=0, search_calls=0) == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_ensemble_sums_costs(monkeypatch):
+    """estimate_ensemble cost_usd is the sum of sample costs."""
+    e = make_estimator()
+    costs = iter([0.01, 0.02, 0.03])
+
+    async def fake_estimate(**kwargs):
+        await asyncio.sleep(0)
+        return ProbabilityEstimate(
+            estimated_probability=0.5, confidence="medium",
+            reasoning="", factors_for=[], factors_against=[],
+            model="claude-test", raw_response="",
+            cost_usd=next(costs),
+        )
+
+    monkeypatch.setattr(e, "estimate", fake_estimate)
+    result = await e.estimate_ensemble("Will X?")
+    assert result.cost_usd == pytest.approx(0.06)

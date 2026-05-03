@@ -180,7 +180,7 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
                ON CONFLICT(date) DO UPDATE SET
                    calls = calls + 1,
                    est_cost_usd = est_cost_usd + excluded.est_cost_usd""",
-            (COST_PER_ESTIMATE_USD * (settings.ensemble_samples if settings.ensemble_enabled else 1),),
+            (estimate.cost_usd or COST_PER_ESTIMATE_USD,),
         )
         await db.commit()
 
@@ -441,7 +441,7 @@ async def run_cycle() -> None:
                        ON CONFLICT(date) DO UPDATE SET
                            calls = calls + 1,
                            est_cost_usd = est_cost_usd + excluded.est_cost_usd""",
-                    (COST_PER_ESTIMATE_USD * (settings.ensemble_samples if settings.ensemble_enabled else 1),),
+                    (estimate.cost_usd or COST_PER_ESTIMATE_USD,),
                 )
                 await db.commit()
 
