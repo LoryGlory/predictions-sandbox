@@ -215,6 +215,51 @@ def test_category_filter_passes_whitelisted():
     assert reason == ""
 
 
+# ── Whitelist mode tests ────────────────────────────────────────────────
+
+
+def test_whitelist_mode_passes_whitelisted_market():
+    with patch("src.markets.scanner.settings", _mock_settings(whitelist_mode=True)):
+        market = binary_market(groupSlugs=["competitive-gaming"])
+        passes, reason = check_category(market)
+        assert passes
+        assert reason == ""
+
+
+def test_whitelist_mode_rejects_non_whitelisted_market():
+    with patch("src.markets.scanner.settings", _mock_settings(whitelist_mode=True)):
+        market = binary_market(groupSlugs=["random-tag"])
+        passes, reason = check_category(market)
+        assert not passes
+        assert "whitelist mode" in reason
+
+
+def test_whitelist_mode_rejects_untagged_market():
+    """Whitelist mode is strict — no tags means no whitelist match."""
+    with patch("src.markets.scanner.settings", _mock_settings(whitelist_mode=True)):
+        market = binary_market(groupSlugs=[])
+        passes, reason = check_category(market)
+        assert not passes
+        assert "no tags" in reason
+
+
+def test_whitelist_mode_still_rejects_blacklisted():
+    """Blacklist still wins over whitelist if both tags present."""
+    with patch("src.markets.scanner.settings", _mock_settings(whitelist_mode=True)):
+        market = binary_market(groupSlugs=["competitive-gaming", "metamarkets"])
+        passes, reason = check_category(market)
+        assert not passes
+        assert "blacklisted" in reason
+
+
+def test_whitelist_mode_off_allows_unrelated_tags():
+    """Default behavior unchanged: non-whitelisted tags pass when whitelist mode is off."""
+    with patch("src.markets.scanner.settings", _mock_settings(whitelist_mode=False)):
+        market = binary_market(groupSlugs=["random-tag"])
+        passes, _ = check_category(market)
+        assert passes
+
+
 def test_category_filter_disabled_passes_all():
     with patch("src.markets.scanner.settings", _mock_settings(category_filter_enabled=False)):
         market = binary_market(groupSlugs=["metamarkets"])

@@ -16,6 +16,10 @@ def _parse_bool(val: str) -> bool:
 
 # Categories where Claude has proven edge (backtest-derived, 2026-04-01)
 CATEGORY_WHITELIST: list[str] = [
+    # Domain-knowledge categories where Claude has demonstrated positive skill
+    # vs the market on resolved predictions (see scripts/run_category_analysis.py).
+    "competitive-programming",
+    "competition-math",
     "competitive-gaming",
     "manifold-users",
     "personal-goals",
@@ -108,6 +112,13 @@ class Settings:
     # Category filtering
     category_filter_enabled: bool = _parse_bool(
         os.getenv("CATEGORY_FILTER_ENABLED", "true")
+    )
+
+    # Whitelist-only mode — when true, only markets with at least one tag in
+    # CATEGORY_WHITELIST are estimated. Reduces volume ~80% but concentrates
+    # estimates on categories where Claude has demonstrated positive skill.
+    whitelist_mode: bool = _parse_bool(
+        os.getenv("WHITELIST_MODE", "false")
     )
 
     # Daily API cost budget (USD) — halts Claude calls when exceeded

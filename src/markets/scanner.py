@@ -112,8 +112,17 @@ def check_category(market: dict[str, Any]) -> tuple[bool, str]:
     if overlap:
         return False, f"blacklisted category: {', '.join(sorted(overlap))}"
 
-    # Untagged markets are allowed through — Manifold's list endpoint
-    # doesn't return groupSlugs, so most markets arrive without tags.
+    # Whitelist-only mode — reject anything not in CATEGORY_WHITELIST.
+    # This includes untagged markets (no whitelist match possible).
+    if settings.whitelist_mode:
+        if not tags & _WHITELIST_SET:
+            if not tags:
+                return False, "whitelist mode: market has no tags"
+            return False, f"whitelist mode: no whitelisted tag in {sorted(tags)}"
+        return True, ""
+
+    # Default mode: untagged markets are allowed through — Manifold's list
+    # endpoint doesn't return groupSlugs, so most markets arrive without tags.
     # The blacklist above catches known-bad categories when tags exist.
     if not tags:
         return True, ""
