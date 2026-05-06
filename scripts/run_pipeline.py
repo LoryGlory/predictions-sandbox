@@ -272,14 +272,17 @@ async def run_cycle() -> None:
                             "Could not enrich tags for %s: %s", external_id, e,
                         )
 
-                # Re-check category filter now that we have real tags
-                if raw_tags:
-                    passes, reason = check_category({"groupSlugs": raw_tags})
-                    if not passes:
-                        logger.info(
-                            "Skipping (post-enrich): %s — %s", question[:50], reason,
-                        )
-                        continue
+                # Re-check category filter now that we have real tags. Pass
+                # allow_untagged=False here so whitelist mode rejects markets
+                # that still have no tags after enrichment failed.
+                passes, reason = check_category(
+                    {"groupSlugs": raw_tags}, allow_untagged=False,
+                )
+                if not passes:
+                    logger.info(
+                        "Skipping (post-enrich): %s — %s", question[:50], reason,
+                    )
+                    continue
 
                 tags_json = json.dumps(raw_tags) if raw_tags else None
 

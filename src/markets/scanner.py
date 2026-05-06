@@ -96,11 +96,20 @@ def is_low_signal(question: str) -> bool:
     return False
 
 
-def check_category(market: dict[str, Any]) -> tuple[bool, str]:
+def check_category(
+    market: dict[str, Any],
+    allow_untagged: bool = False,
+) -> tuple[bool, str]:
     """Check whether a market passes category filtering.
 
     Returns (passes, reason) — reason is non-empty when the market is rejected.
     When category filtering is disabled, all markets pass.
+
+    Args:
+        market: Market dict with tags.
+        allow_untagged: If True, untagged markets pass even in whitelist mode.
+            Used in the bulk-filter stage where Manifold's list endpoint
+            returns no tags — those markets get enriched and re-checked later.
     """
     if not settings.category_filter_enabled:
         return True, ""
@@ -113,11 +122,14 @@ def check_category(market: dict[str, Any]) -> tuple[bool, str]:
         return False, f"blacklisted category: {', '.join(sorted(overlap))}"
 
     # Whitelist-only mode — reject anything not in CATEGORY_WHITELIST.
-    # This includes untagged markets (no whitelist match possible).
+    # Untagged markets are rejected unless allow_untagged is set (typically
+    # at the bulk-filter stage where tags haven't been fetched yet).
     if settings.whitelist_mode:
+        if not tags:
+            if allow_untagged:
+                return True, ""
+            return False, "whitelist mode: market has no tags"
         if not tags & _WHITELIST_SET:
-            if not tags:
-                return False, "whitelist mode: market has no tags"
             return False, f"whitelist mode: no whitelisted tag in {sorted(tags)}"
         return True, ""
 
@@ -148,7 +160,10 @@ def is_tradeable(market: dict[str, Any], min_prob: float = 0.05, max_prob: float
     if is_low_signal(question):
         return False
 
-    passes, reason = check_category(market)
+    # Bulk-filter stage: Manifold's list endpoint returns no tags, so allow
+    # untagged markets through here. They'll be tag-enriched and re-checked
+    # against the whitelist in the per-market loop.
+    passes, reason = check_category(market, allow_untagged=True)
     if not passes:
         logger.debug("Skipping '%s': %s", question[:60], reason)
         return False

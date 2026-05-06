@@ -260,6 +260,25 @@ def test_whitelist_mode_off_allows_unrelated_tags():
         assert passes
 
 
+def test_whitelist_mode_allows_untagged_with_flag():
+    """allow_untagged=True lets untagged markets pass through bulk filter, to be
+    re-checked after tag enrichment. Without it, all Manifold markets would be
+    rejected pre-enrichment."""
+    with patch("src.markets.scanner.settings", _mock_settings(whitelist_mode=True)):
+        market = binary_market(groupSlugs=[])
+        passes, _ = check_category(market, allow_untagged=True)
+        assert passes
+
+
+def test_whitelist_mode_blacklist_still_wins_with_allow_untagged():
+    """allow_untagged shouldn't bypass blacklist enforcement."""
+    with patch("src.markets.scanner.settings", _mock_settings(whitelist_mode=True)):
+        market = binary_market(groupSlugs=["metamarkets"])
+        passes, reason = check_category(market, allow_untagged=True)
+        assert not passes
+        assert "blacklisted" in reason
+
+
 def test_category_filter_disabled_passes_all():
     with patch("src.markets.scanner.settings", _mock_settings(category_filter_enabled=False)):
         market = binary_market(groupSlugs=["metamarkets"])
