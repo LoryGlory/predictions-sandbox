@@ -407,11 +407,17 @@ async def run_cycle() -> None:
                 )
                 await db.commit()
 
-                # A/B test: run both prompt versions on ~10% of markets
+                # A/B test: run an alternate prompt version on ~10% of markets.
+                # The alt is the immediately-prior version so we compare adjacent
+                # iterations: v3 vs v2, v2 vs v1, v1 vs v2 (fallback).
                 if estimator.should_ab_test():
-                    alt_version = (
-                        "v1_baseline" if estimate.prompt_version == "v2_market_aware"
-                        else "v2_market_aware"
+                    _AB_PAIRS = {
+                        "v3_scenario": "v2_market_aware",
+                        "v2_market_aware": "v1_baseline",
+                        "v1_baseline": "v2_market_aware",
+                    }
+                    alt_version = _AB_PAIRS.get(
+                        estimate.prompt_version, "v2_market_aware",
                     )
                     try:
                         alt_estimate = await estimator.estimate(

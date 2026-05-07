@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _PROMPT_VERSIONS: dict[str, str] = {
     "v1_baseline": "config.prompts.v1_baseline",
     "v2_market_aware": "config.prompts.v2_market_aware",
+    "v3_scenario": "config.prompts.v3_scenario",
 }
 
 

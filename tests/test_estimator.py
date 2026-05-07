@@ -11,6 +11,8 @@ from config.prompts.v1_baseline import SYSTEM_PROMPT as V1_SYSTEM
 from config.prompts.v1_baseline import build_user_prompt as v1_prompt
 from config.prompts.v2_market_aware import SYSTEM_PROMPT as V2_SYSTEM
 from config.prompts.v2_market_aware import build_user_prompt as v2_prompt
+from config.prompts.v3_scenario import SYSTEM_PROMPT as V3_SYSTEM
+from config.prompts.v3_scenario import build_user_prompt as v3_prompt
 from src.analysis.estimator import Estimator, ProbabilityEstimate, _compute_cost
 from src.analysis.prompts import MARKET_ANALYSIS_SYSTEM, market_analysis_prompt
 
@@ -188,6 +190,45 @@ def test_v1_preserved_as_baseline():
     assert "JSON" in V1_SYSTEM
     prompt = v1_prompt("Will X?", market_price=0.5)
     assert "Will X?" in prompt
+
+
+# ── V3 scenario decomposition prompt tests ──────────────────────────────
+
+
+def test_v3_system_prompt_requires_json():
+    assert "JSON" in V3_SYSTEM
+    assert "estimated_probability" in V3_SYSTEM
+
+
+def test_v3_system_prompt_requires_four_scenarios():
+    """The four scenario sections are the whole point of v3."""
+    for required in ("STATUS QUO", "NO SCENARIO", "YES SCENARIO", "BASE RATE"):
+        assert required in V3_SYSTEM, f"v3 must require {required}"
+
+
+def test_v3_system_prompt_schema_includes_scenarios_object():
+    """The JSON schema shown to Claude must reference the scenarios object."""
+    assert "scenarios" in V3_SYSTEM
+    assert "status_quo" in V3_SYSTEM
+    assert "no_path" in V3_SYSTEM
+    assert "yes_path" in V3_SYSTEM
+    assert "base_rate" in V3_SYSTEM
+
+
+def test_v3_prompt_includes_question():
+    prompt = v3_prompt("Will X happen?")
+    assert "Will X happen?" in prompt
+
+
+def test_v3_prompt_mentions_scenario_workflow():
+    prompt = v3_prompt("Will X?", market_price=0.5)
+    # User message should reference the scenario workflow so Claude is reminded
+    assert "STATUS_QUO" in prompt or "scenarios" in prompt
+
+
+def test_v3_prompt_warns_on_extreme_price():
+    prompt = v3_prompt("Will X?", market_price=0.95)
+    assert "extreme" in prompt.lower() or "cautious" in prompt.lower()
 
 
 # ── A/B testing ────────────────────────────────────────────────────────────
