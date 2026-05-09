@@ -27,5 +27,9 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         await db.execute(
             "ALTER TABLE predictions ADD COLUMN ensemble_samples TEXT"
         )
+    if "scenarios" not in columns:
+        await db.execute(
+            "ALTER TABLE predictions ADD COLUMN scenarios TEXT"
+        )
 
     await db.commit()

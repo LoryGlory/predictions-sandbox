@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     prompt_version  TEXT,
     used_web_search INTEGER NOT NULL DEFAULT 0,
     ensemble_samples TEXT,
+    scenarios       TEXT,
     timestamp       TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

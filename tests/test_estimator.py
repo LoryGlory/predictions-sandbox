@@ -231,6 +231,59 @@ def test_v3_prompt_warns_on_extreme_price():
     assert "extreme" in prompt.lower() or "cautious" in prompt.lower()
 
 
+def test_parse_extracts_v3_scenarios():
+    """When Claude returns the v3 schema with scenarios, parser stores them."""
+    e = make_estimator()
+    v3_response = json.dumps({
+        "scenarios": {
+            "status_quo": "Nothing changes by resolution date",
+            "no_path": "Default path: event doesn't happen",
+            "yes_path": "Specific path: X triggers Y",
+            "base_rate": "Comparable events resolved YES ~30% historically",
+        },
+        "reasoning": "Weighing the scenarios, leaning slightly NO",
+        "key_factors_for": ["factor a"],
+        "key_factors_against": ["factor b"],
+        "estimated_probability": 0.35,
+        "confidence": "medium",
+    })
+    result = e._parse_response(v3_response, model="claude-test")
+    assert result.scenarios is not None
+    assert result.scenarios["status_quo"] == "Nothing changes by resolution date"
+    assert result.scenarios["base_rate"].startswith("Comparable")
+    assert result.estimated_probability == pytest.approx(0.35)
+
+
+def test_parse_v2_response_has_no_scenarios():
+    """v1/v2 responses without a scenarios object should leave the field None."""
+    e = make_estimator()
+    result = e._parse_response(valid_response(), model="claude-test")
+    assert result.scenarios is None
+
+
+def test_parse_scenarios_drops_non_string_values():
+    """Schema-drift safety: ignore non-string scenario values rather than crash."""
+    e = make_estimator()
+    response = json.dumps({
+        "scenarios": {
+            "status_quo": "Nothing changes",
+            "no_path": 42,  # bad type
+            "yes_path": "Specific path",
+            "base_rate": None,  # bad type
+        },
+        "reasoning": "test",
+        "key_factors_for": [],
+        "key_factors_against": [],
+        "estimated_probability": 0.5,
+        "confidence": "medium",
+    })
+    result = e._parse_response(response, model="claude-test")
+    assert result.scenarios == {
+        "status_quo": "Nothing changes",
+        "yes_path": "Specific path",
+    }
+
+
 # ── A/B testing ────────────────────────────────────────────────────────────
 
 

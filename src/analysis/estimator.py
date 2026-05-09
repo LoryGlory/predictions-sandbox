@@ -40,6 +40,9 @@ class ProbabilityEstimate:
     # Real USD cost of this estimate, computed from response.usage tokens
     # plus any web_search invocations. Sums across ensemble samples.
     cost_usd: float = 0.0
+    # v3 scenario decomposition fields (status_quo / no_path / yes_path /
+    # base_rate). None for v1/v2 estimates that don't produce these.
+    scenarios: dict[str, str] | None = None
 
 
 # Confidence ordering used by the ensemble to pick the most conservative value.
@@ -249,6 +252,7 @@ class Estimator:
             used_web_search=any(r.used_web_search for r in results),
             ensemble_samples=samples,
             cost_usd=sum(r.cost_usd for r in results),
+            scenarios=mid.scenarios,
         )
 
     def should_ab_test(self) -> bool:
@@ -293,6 +297,17 @@ class Estimator:
         factors_for = data.get("key_factors_for") or data.get("factors_for", [])
         factors_against = data.get("key_factors_against") or data.get("factors_against", [])
 
+        # v3 produces a "scenarios" object — keep only string fields to be
+        # robust against schema drift, return None if missing entirely.
+        raw_scenarios = data.get("scenarios")
+        scenarios: dict[str, str] | None = None
+        if isinstance(raw_scenarios, dict):
+            scenarios = {
+                k: str(v) for k, v in raw_scenarios.items() if isinstance(v, str)
+            }
+            if not scenarios:
+                scenarios = None
+
         return ProbabilityEstimate(
             estimated_probability=prob,
             confidence=data.get("confidence", "low"),
@@ -301,4 +316,5 @@ class Estimator:
             factors_against=factors_against,
             model=model,
             raw_response=raw,
+            scenarios=scenarios,
         )

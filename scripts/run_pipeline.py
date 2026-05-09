@@ -159,16 +159,20 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
         samples_json = (
             json.dumps(estimate.ensemble_samples) if estimate.ensemble_samples else None
         )
+        scenarios_json = (
+            json.dumps(estimate.scenarios) if estimate.scenarios else None
+        )
         await db.execute(
             """INSERT INTO predictions
                (market_id, model, estimated_prob, market_price, confidence,
-                reasoning, prompt_version, used_web_search, ensemble_samples)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                reasoning, prompt_version, used_web_search, ensemble_samples,
+                scenarios)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 market_db_id, estimate.model, estimate.estimated_probability,
                 market_price, estimate.confidence, estimate.reasoning,
                 estimate.prompt_version, int(estimate.used_web_search),
-                samples_json,
+                samples_json, scenarios_json,
             ),
         )
         await db.commit()
@@ -388,11 +392,15 @@ async def run_cycle() -> None:
                     json.dumps(estimate.ensemble_samples)
                     if estimate.ensemble_samples else None
                 )
+                scenarios_json = (
+                    json.dumps(estimate.scenarios) if estimate.scenarios else None
+                )
                 await db.execute(
                     """INSERT INTO predictions
                        (market_id, model, estimated_prob, market_price, confidence,
-                        reasoning, prompt_version, used_web_search, ensemble_samples)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        reasoning, prompt_version, used_web_search, ensemble_samples,
+                        scenarios)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         market_db_id,
                         estimate.model,
@@ -403,6 +411,7 @@ async def run_cycle() -> None:
                         estimate.prompt_version,
                         int(estimate.used_web_search),
                         samples_json,
+                        scenarios_json,
                     ),
                 )
                 await db.commit()
@@ -424,10 +433,15 @@ async def run_cycle() -> None:
                             question, market_price=market_price,
                             category=category, prompt_version=alt_version,
                         )
+                        alt_scenarios_json = (
+                            json.dumps(alt_estimate.scenarios)
+                            if alt_estimate.scenarios else None
+                        )
                         await db.execute(
                             """INSERT INTO predictions
-                               (market_id, model, estimated_prob, market_price, confidence, reasoning, prompt_version)
-                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                               (market_id, model, estimated_prob, market_price,
+                                confidence, reasoning, prompt_version, scenarios)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                             (
                                 market_db_id,
                                 alt_estimate.model,
@@ -436,6 +450,7 @@ async def run_cycle() -> None:
                                 alt_estimate.confidence,
                                 alt_estimate.reasoning,
                                 alt_estimate.prompt_version,
+                                alt_scenarios_json,
                             ),
                         )
                         await db.commit()
