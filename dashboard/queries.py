@@ -118,7 +118,19 @@ async def get_market_detail(market_id: int) -> dict | None:
                ORDER BY p.timestamp DESC""",
             (market_id,),
         ) as cur:
-            market["predictions"] = [dict(r) for r in await cur.fetchall()]
+            predictions = [dict(r) for r in await cur.fetchall()]
+
+        # Parse the scenarios JSON for v3 predictions so the template can render
+        # the four sections cleanly
+        for p in predictions:
+            if p.get("scenarios"):
+                try:
+                    p["scenarios_dict"] = json.loads(p["scenarios"])
+                except (json.JSONDecodeError, TypeError):
+                    p["scenarios_dict"] = None
+            else:
+                p["scenarios_dict"] = None
+        market["predictions"] = predictions
 
         async with db.execute(
             "SELECT * FROM trades WHERE market_id = ? ORDER BY timestamp DESC",
@@ -206,6 +218,42 @@ async def get_calibration_overview(filtered: bool = False) -> dict:
     result["buckets"] = bucket_list
 
     return result
+
+
+async def get_prompt_version_stats(min_count: int = 3) -> list[dict]:
+    """Per-prompt-version Brier / skill scores for v1/v2/v3 head-to-head."""
+    async with get_db(read_only=True) as db:
+        async with db.execute(
+            """SELECT
+                   COALESCE(p.prompt_version, '(untracked)') as version,
+                   COUNT(*) as n,
+                   AVG(c.brier_score) as claude,
+                   AVG(
+                       (COALESCE(p.market_price, m.current_price) - c.actual_outcome)
+                       * (COALESCE(p.market_price, m.current_price) - c.actual_outcome)
+                   ) as market
+               FROM calibration c
+               JOIN predictions p ON c.prediction_id = p.id
+               JOIN markets m ON p.market_id = m.id
+               WHERE c.brier_score IS NOT NULL
+                 AND c.actual_outcome IS NOT NULL
+               GROUP BY COALESCE(p.prompt_version, '(untracked)')
+               HAVING COUNT(*) >= ?
+               ORDER BY n DESC""",
+            (min_count,),
+        ) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+
+    for r in rows:
+        if r["market"] and r["market"] > 0:
+            try:
+                r["skill_score"] = brier_skill_score(r["claude"], r["market"])
+            except ValueError:
+                r["skill_score"] = None
+        else:
+            r["skill_score"] = None
+
+    return rows
 
 
 async def get_category_stats(min_count: int = 3, filtered: bool = False) -> list[dict]:

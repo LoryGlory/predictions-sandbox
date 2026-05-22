@@ -60,6 +60,34 @@
 </figure>
 {% endif %}
 
+{% if prompt_versions %}
+<h2>Per-Prompt-Version</h2>
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>Version</th>
+            <th>N</th>
+            <th>Claude</th>
+            <th>Market</th>
+            <th>Skill</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for v in prompt_versions %}
+        <tr>
+            <td><code>{{ v.version }}</code></td>
+            <td>{{ v.n }}</td>
+            <td>{{ v.claude|brier }}</td>
+            <td>{{ v.market|brier }}</td>
+            <td style="{{ v.skill_score|skill_color }}">{{ "%+.2f"|format(v.skill_score) if v.skill_score is not none else "—" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% endif %}
+
 {% if categories %}
 <h2>Per-Category Breakdown</h2>
 <figure>

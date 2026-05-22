@@ -27,6 +27,7 @@
             <th>Market Price</th>
             <th>Edge</th>
             <th>Confidence</th>
+            <th>Prompt</th>
             <th>Outcome</th>
             <th>Brier</th>
             <th>Time</th>
@@ -39,6 +40,7 @@
             <td>{{ p.market_price|pct if p.market_price is not none else "—" }}</td>
             <td>{% if p.market_price is not none %}{{ ((p.estimated_prob - p.market_price) * 100)|round(1) }}%{% else %}—{% endif %}</td>
             <td>{{ p.confidence or "—" }}</td>
+            <td><code>{{ p.prompt_version or "—" }}</code></td>
             <td>{% if p.actual_outcome is not none %}{{ "YES" if p.actual_outcome == 1 else "NO" }}{% else %}—{% endif %}</td>
             <td>{{ p.brier_score|brier if p.brier_score is not none else "—" }}</td>
             <td>{{ p.timestamp[:16] }}</td>
@@ -49,6 +51,25 @@
 </figure>
 
 {% for p in market.predictions %}
+{% if p.scenarios_dict %}
+<details>
+    <summary>Scenarios (v3) — {{ p.timestamp[:16] }} ({{ p.estimated_prob|pct }})</summary>
+    <dl>
+        {% if p.scenarios_dict.status_quo %}
+        <dt>Status quo</dt><dd>{{ p.scenarios_dict.status_quo }}</dd>
+        {% endif %}
+        {% if p.scenarios_dict.no_path %}
+        <dt>No path</dt><dd>{{ p.scenarios_dict.no_path }}</dd>
+        {% endif %}
+        {% if p.scenarios_dict.yes_path %}
+        <dt>Yes path</dt><dd>{{ p.scenarios_dict.yes_path }}</dd>
+        {% endif %}
+        {% if p.scenarios_dict.base_rate %}
+        <dt>Base rate</dt><dd>{{ p.scenarios_dict.base_rate }}</dd>
+        {% endif %}
+    </dl>
+</details>
+{% endif %}
 {% if p.reasoning %}
 <details>
     <summary>Reasoning — {{ p.timestamp[:16] }} ({{ p.estimated_prob|pct }})</summary>

@@ -43,10 +43,12 @@ async def market_detail(request: Request, market_id: int):
 async def calibration(request: Request, filtered: bool = False):
     overview = await queries.get_calibration_overview(filtered=filtered)
     categories = await queries.get_category_stats(min_count=3, filtered=filtered)
+    prompt_versions = await queries.get_prompt_version_stats(min_count=3)
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "calibration.html", {
         **overview,
         "categories": categories,
+        "prompt_versions": prompt_versions,
     })
 
 
