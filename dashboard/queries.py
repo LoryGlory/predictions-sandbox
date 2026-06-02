@@ -339,7 +339,14 @@ async def get_trades(page: int = 1, per_page: int = 20) -> tuple[list[dict], dic
         async with db.execute(
             """SELECT COUNT(*) as total,
                       SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
-                      SUM(pnl) as total_pnl
+                      SUM(pnl) as total_pnl,
+                      SUM(CASE WHEN is_paper=0 THEN 1 ELSE 0 END) as live_total,
+                      SUM(CASE WHEN is_paper=0
+                               AND timestamp > datetime('now','-1 day') THEN 1
+                          ELSE 0 END) as live_today,
+                      COALESCE(SUM(CASE WHEN is_paper=0
+                               AND timestamp > datetime('now','-1 day') THEN size
+                          ELSE 0 END), 0) as live_mana_today
                FROM trades"""
         ) as cur:
             summary_row = await cur.fetchone()
@@ -352,6 +359,9 @@ async def get_trades(page: int = 1, per_page: int = 20) -> tuple[list[dict], dic
                     if summary_row["total"]
                     else 0.0
                 ),
+                "live_total": summary_row["live_total"] or 0,
+                "live_today": summary_row["live_today"] or 0,
+                "live_mana_today": summary_row["live_mana_today"] or 0.0,
             }
 
     return rows, summary, total

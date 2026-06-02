@@ -16,6 +16,14 @@
         <h3>{{ "%.2f"|format(summary.total_pnl) }}</h3>
         <small>Total P&L</small>
     </article>
+    <article class="stat-card">
+        <h3>{{ summary.live_today }} / {{ summary.live_total }}</h3>
+        <small>Live bets (24h / all)</small>
+    </article>
+    <article class="stat-card">
+        <h3>M${{ "%.0f"|format(summary.live_mana_today) }}</h3>
+        <small>Mana committed (24h)</small>
+    </article>
 </div>
 
 {% if trades %}
@@ -25,11 +33,12 @@
         <tr>
             <th>Market</th>
             <th>Platform</th>
+            <th>Mode</th>
             <th>Direction</th>
             <th>Size</th>
             <th>Entry</th>
             <th>P&L</th>
-            <th>Paper</th>
+            <th>Live bet ID</th>
             <th>Time</th>
         </tr>
     </thead>
@@ -38,11 +47,18 @@
         <tr>
             <td><a href="/markets/{{ t.market_id }}">{{ t.question[:50] }}{% if t.question|length > 50 %}…{% endif %}</a></td>
             <td><span class="tag">{{ t.platform }}</span></td>
+            <td>
+                {% if t.is_paper %}
+                <span class="tag" style="background:#444;color:#ddd">PAPER</span>
+                {% else %}
+                <span class="tag" style="background:#0a7a3f;color:#fff">LIVE</span>
+                {% endif %}
+            </td>
             <td>{{ t.direction }}</td>
             <td>{{ "%.2f"|format(t.size) }}</td>
             <td>{{ t.entry_price|pct }}</td>
             <td>{{ "%.2f"|format(t.pnl) if t.pnl else "—" }}</td>
-            <td>{{ "Yes" if t.is_paper else "No" }}</td>
+            <td>{% if t.live_bet_id %}<code style="font-size:0.85em">{{ t.live_bet_id }}</code>{% else %}—{% endif %}</td>
             <td>{{ t.timestamp[:16] }}</td>
         </tr>
         {% endfor %}
