@@ -318,17 +318,41 @@ async def get_category_stats(min_count: int = 3, filtered: bool = False) -> list
     return results
 
 
-async def get_trades(page: int = 1, per_page: int = 20) -> tuple[list[dict], dict, int]:
-    """Paginated trades with summary stats."""
+def _trades_mode_where(mode: str | None) -> str:
+    """Translate a `mode` filter into a SQL WHERE clause for the trades table."""
+    if mode == "live":
+        return "WHERE t.is_paper = 0"
+    if mode == "paper":
+        return "WHERE t.is_paper = 1"
+    return ""
+
+
+async def get_trades(
+    page: int = 1,
+    per_page: int = 20,
+    mode: str | None = None,
+) -> tuple[list[dict], dict, int]:
+    """Paginated trades with summary stats.
+
+    Args:
+        page / per_page: pagination
+        mode: filter on is_paper. "live" → is_paper=0, "paper" → is_paper=1,
+            anything else (or None) returns all rows.
+    """
     offset = (page - 1) * per_page
+    where = _trades_mode_where(mode)
+
     async with get_db(read_only=True) as db:
-        async with db.execute("SELECT COUNT(*) as cnt FROM trades") as cur:
+        async with db.execute(
+            f"SELECT COUNT(*) as cnt FROM trades t {where}",
+        ) as cur:
             total = (await cur.fetchone())["cnt"]
 
         async with db.execute(
-            """SELECT t.*, m.question, m.platform
+            f"""SELECT t.*, m.question, m.platform
                FROM trades t
                JOIN markets m ON t.market_id = m.id
+               {where}
                ORDER BY t.timestamp DESC
                LIMIT ? OFFSET ?""",
             (per_page, offset),

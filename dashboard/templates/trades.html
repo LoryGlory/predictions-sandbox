@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Trades{% endblock %}
 {% block content %}
-<h1>Trades</h1>
+<h1>Trades {% if mode %}<small>({{ mode }} only)</small>{% endif %}</h1>
+
+<nav aria-label="Trade mode filter">
+    <ul>
+        <li>{% if not mode %}<strong>All</strong>{% else %}<a href="/trades">All</a>{% endif %}</li>
+        <li>{% if mode == "live" %}<strong>Live</strong>{% else %}<a href="/trades?mode=live">Live</a>{% endif %}</li>
+        <li>{% if mode == "paper" %}<strong>Paper</strong>{% else %}<a href="/trades?mode=paper">Paper</a>{% endif %}</li>
+    </ul>
+</nav>
 
 <div class="stat-grid">
     <article class="stat-card">
@@ -67,7 +75,7 @@
 </figure>
 
 {% if total_pages > 1 %}
-<nav>
+<nav aria-label="Pagination">
     <ul>
         <li>{% if page > 1 %}<a href="?page={{ page - 1 }}">Previous</a>{% endif %}</li>
         <li>Page {{ page }} of {{ total_pages }}</li>

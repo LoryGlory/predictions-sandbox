@@ -53,8 +53,10 @@ async def calibration(request: Request, filtered: bool = False):
 
 
 @router.get("/trades", response_class=HTMLResponse)
-async def trades(request: Request, page: int = 1):
-    rows, summary, total = await queries.get_trades(page=page, per_page=PER_PAGE)
+async def trades(request: Request, page: int = 1, mode: str | None = None):
+    rows, summary, total = await queries.get_trades(
+        page=page, per_page=PER_PAGE, mode=mode,
+    )
     total_pages = max(1, math.ceil(total / PER_PAGE))
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "trades.html", {
@@ -62,6 +64,7 @@ async def trades(request: Request, page: int = 1):
         "summary": summary,
         "page": page,
         "total_pages": total_pages,
+        "mode": mode,
     })
 
 
