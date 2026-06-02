@@ -359,34 +359,43 @@ async def get_trades(
         ) as cur:
             rows = [dict(r) for r in await cur.fetchall()]
 
-        # Summary
+        # Main summary stats respect the mode filter
         async with db.execute(
-            """SELECT COUNT(*) as total,
-                      SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
-                      SUM(pnl) as total_pnl,
-                      SUM(CASE WHEN is_paper=0 THEN 1 ELSE 0 END) as live_total,
-                      SUM(CASE WHEN is_paper=0
-                               AND timestamp > datetime('now','-1 day') THEN 1
-                          ELSE 0 END) as live_today,
-                      COALESCE(SUM(CASE WHEN is_paper=0
-                               AND timestamp > datetime('now','-1 day') THEN size
-                          ELSE 0 END), 0) as live_mana_today
-               FROM trades"""
+            f"""SELECT COUNT(*) as total,
+                       SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                       SUM(pnl) as total_pnl
+                FROM trades t {where}""",
         ) as cur:
             summary_row = await cur.fetchone()
-            summary = {
-                "total": summary_row["total"],
-                "wins": summary_row["wins"] or 0,
-                "total_pnl": summary_row["total_pnl"] or 0.0,
-                "win_rate": (
-                    (summary_row["wins"] or 0) / summary_row["total"]
-                    if summary_row["total"]
-                    else 0.0
-                ),
-                "live_total": summary_row["live_total"] or 0,
-                "live_today": summary_row["live_today"] or 0,
-                "live_mana_today": summary_row["live_mana_today"] or 0.0,
-            }
+
+        # Live-cap tracker stats are always global — they show where you are
+        # against LIVE_MAX_BETS_PER_DAY regardless of which tab you're viewing
+        async with db.execute(
+            """SELECT
+                   SUM(CASE WHEN is_paper=0 THEN 1 ELSE 0 END) as live_total,
+                   SUM(CASE WHEN is_paper=0
+                            AND timestamp > datetime('now','-1 day') THEN 1
+                       ELSE 0 END) as live_today,
+                   COALESCE(SUM(CASE WHEN is_paper=0
+                            AND timestamp > datetime('now','-1 day') THEN size
+                       ELSE 0 END), 0) as live_mana_today
+               FROM trades"""
+        ) as cur:
+            cap_row = await cur.fetchone()
+
+        summary = {
+            "total": summary_row["total"],
+            "wins": summary_row["wins"] or 0,
+            "total_pnl": summary_row["total_pnl"] or 0.0,
+            "win_rate": (
+                (summary_row["wins"] or 0) / summary_row["total"]
+                if summary_row["total"]
+                else 0.0
+            ),
+            "live_total": cap_row["live_total"] or 0,
+            "live_today": cap_row["live_today"] or 0,
+            "live_mana_today": cap_row["live_mana_today"] or 0.0,
+        }
 
     return rows, summary, total
 

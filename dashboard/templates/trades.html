@@ -14,15 +14,15 @@
 <div class="stat-grid">
     <article class="stat-card">
         <h3>{{ summary.total }}</h3>
-        <small>Total trades</small>
+        <small>{% if mode %}{{ mode|capitalize }} trades{% else %}Total trades{% endif %}</small>
     </article>
     <article class="stat-card">
         <h3>{{ "%.0f%%"|format(summary.win_rate * 100) }}</h3>
-        <small>Win rate</small>
+        <small>{% if mode %}{{ mode|capitalize }} win rate{% else %}Win rate{% endif %}</small>
     </article>
     <article class="stat-card">
         <h3>{{ "%.2f"|format(summary.total_pnl) }}</h3>
-        <small>Total P&L</small>
+        <small>{% if mode %}{{ mode|capitalize }} P&L{% else %}Total P&L{% endif %}</small>
     </article>
     <article class="stat-card">
         <h3>{{ summary.live_today }} / {{ summary.live_total }}</h3>
