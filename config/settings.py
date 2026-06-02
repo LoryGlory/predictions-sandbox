@@ -139,5 +139,13 @@ class Settings:
     )
     ensemble_samples: int = int(os.getenv("ENSEMBLE_SAMPLES", "3"))
 
+    # Manifold live trading — "paper" logs trades only, "live" places real bets
+    # via the Manifold API. Default is paper. When live, the safety caps below
+    # apply on top of Kelly sizing.
+    manifold_mode: str = os.getenv("MANIFOLD_MODE", "paper")
+    live_max_bet_mana: int = int(os.getenv("LIVE_MAX_BET_MANA", "5"))
+    live_max_bets_per_cycle: int = int(os.getenv("LIVE_MAX_BETS_PER_CYCLE", "3"))
+    live_max_bets_per_day: int = int(os.getenv("LIVE_MAX_BETS_PER_DAY", "20"))
+
 
 settings = Settings()

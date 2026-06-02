@@ -32,4 +32,10 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             "ALTER TABLE predictions ADD COLUMN scenarios TEXT"
         )
 
+    # Trades table: live_bet_id for tracking real Manifold bets
+    async with db.execute("PRAGMA table_info(trades)") as cur:
+        trade_cols = {row[1] async for row in cur}
+    if "live_bet_id" not in trade_cols:
+        await db.execute("ALTER TABLE trades ADD COLUMN live_bet_id TEXT")
+
     await db.commit()

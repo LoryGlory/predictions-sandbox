@@ -1,11 +1,20 @@
 """Trade executor — places bets or logs paper trades.
 
-In calibration mode (daily_limit=0) all trades are paper-only.
-In live mode, calls the Manifold API to place real bets.
+Paper mode (default): logs trades to the DB without calling any platform API.
+Live mode: calls the Manifold API to place real-mana bets. Live mode is gated
+by MANIFOLD_MODE=live in settings, plus three hard safety caps:
+
+  - LIVE_MAX_BET_MANA caps the size of every single bet
+  - LIVE_MAX_BETS_PER_CYCLE caps how many live bets one pipeline cycle can place
+  - LIVE_MAX_BETS_PER_DAY caps how many live bets across the rolling 24h window
+
+Polymarket bets are always paper (no wallet, no live executor path).
 """
 import logging
 from typing import Any
 
+from config.settings import settings
+from src.markets.manifold import ManifoldClient
 from src.trading.risk import BudgetExceededError, BudgetGuardian, KillSwitchError
 
 logger = logging.getLogger(__name__)
@@ -19,12 +28,131 @@ class TradeExecutor:
 
     Args:
         guardian: Budget guardian instance that enforces spending limits.
-        paper_mode: If True, log trades without calling any API.
+        paper_mode: If True, log trades without calling any API. Combined with
+            settings.manifold_mode == "live", live Manifold trades are placed
+            for Manifold markets while Polymarket stays simulated.
+        manifold_client: Optional ManifoldClient for live trading. If None and
+            live mode is active, will be constructed on demand.
+        daily_live_count_provider: Optional callable returning the count of live
+            bets placed in the last 24h. Injected to keep the executor stateless
+            wrt the database. Returns 0 if None.
     """
 
-    def __init__(self, guardian: BudgetGuardian, paper_mode: bool = True) -> None:
+    def __init__(
+        self,
+        guardian: BudgetGuardian,
+        paper_mode: bool = True,
+        manifold_client: ManifoldClient | None = None,
+        daily_live_count_provider: Any = None,
+    ) -> None:
         self.guardian = guardian
         self.paper_mode = paper_mode
+        self._manifold_client = manifold_client
+        self._daily_live_count_provider = daily_live_count_provider
+        # Per-cycle counter, reset by the pipeline at the start of each cycle
+        self.cycle_live_count = 0
+
+    def reset_cycle_counter(self) -> None:
+        """Call at the start of every pipeline cycle to reset the per-cycle cap."""
+        self.cycle_live_count = 0
+
+    def _should_go_live(self, platform: str) -> bool:
+        """Returns True if this specific trade should hit the Manifold live API."""
+        if self.paper_mode:
+            return False
+        if platform != "manifold":
+            return False
+        return settings.manifold_mode.lower() == "live"
+
+    async def _check_live_caps(self, bet_size: float) -> tuple[bool, str]:
+        """Returns (allowed, reason). reason is empty when allowed."""
+        if bet_size > settings.live_max_bet_mana:
+            # Note: the caller has already capped bet_size for live; this is a
+            # defense-in-depth check in case it didn't.
+            return False, f"bet size {bet_size:.0f} exceeds LIVE_MAX_BET_MANA={settings.live_max_bet_mana}"
+        if self.cycle_live_count >= settings.live_max_bets_per_cycle:
+            return False, f"cycle cap reached: {self.cycle_live_count}/{settings.live_max_bets_per_cycle}"
+        if self._daily_live_count_provider is not None:
+            try:
+                count_today = await self._daily_live_count_provider()
+            except Exception as e:
+                logger.warning("Daily-count provider failed: %s — blocking live bet", e)
+                return False, "daily count unavailable"
+            if count_today >= settings.live_max_bets_per_day:
+                return False, f"daily cap reached: {count_today}/{settings.live_max_bets_per_day}"
+        return True, ""
+
+    @staticmethod
+    def _polymarket_costs(bet_size: float, spread: float | None) -> dict[str, float]:
+        """Compute simulated Polymarket spread + gas costs for a paper trade."""
+        spread_cost = (spread or 0.01) * bet_size
+        return {
+            "spread_cost": spread_cost,
+            "gas_fee": POLYMARKET_GAS_FEE_USD,
+            "total_cost": spread_cost + POLYMARKET_GAS_FEE_USD,
+        }
+
+    def _log_paper_trade(
+        self, label: str, direction: str, question: str,
+        bet_size: float, market_id: str, trade: dict[str, Any], platform: str,
+    ) -> None:
+        cost_str = ""
+        if platform == "polymarket":
+            cost_str = (
+                f" (spread: ${trade['spread_cost']:.3f}, "
+                f"gas: ${trade['gas_fee']:.3f})"
+            )
+        logger.info(
+            "%s TRADE: %s %s $%.2f on %s%s",
+            label, direction, question[:60], bet_size, market_id, cost_str,
+        )
+
+    async def _place_live_bet(
+        self, market: dict[str, Any], direction: str, bet_size: float,
+        trade: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Run the live Manifold bet path; mutates `trade` and returns it (or None)."""
+        allowed, reason = await self._check_live_caps(bet_size)
+        if not allowed:
+            logger.warning("Live bet blocked: %s — falling back to paper trade", reason)
+            trade["is_paper"] = 1
+            return trade
+
+        amount = int(round(bet_size))
+        if amount <= 0:
+            logger.info("Live bet rounded to zero — skipping")
+            return None
+
+        outcome = direction.upper()
+        market_id = market.get("id")
+        if not market_id:
+            logger.error("Live bet has no market id — skipping")
+            return None
+
+        try:
+            client = self._manifold_client
+            if client is None:
+                async with ManifoldClient() as new_client:
+                    bet_resp = await new_client.place_bet(market_id, outcome, amount)
+            else:
+                bet_resp = await client.place_bet(market_id, outcome, amount)
+        except Exception:
+            logger.exception(
+                "Live bet failed for %s — falling back to paper", market_id,
+            )
+            trade["is_paper"] = 1
+            return trade
+
+        self.cycle_live_count += 1
+        trade["live_bet_id"] = bet_resp.get("id")
+        trade["filled_amount"] = bet_resp.get("amount") or amount
+        trade["prob_after"] = bet_resp.get("probAfter")
+        logger.info(
+            "LIVE TRADE PLACED: %s %s M$%d on %s (filled M$%s, probAfter=%s)",
+            outcome, market.get("question", "?")[:50], amount, market_id,
+            trade["filled_amount"], trade.get("prob_after"),
+        )
+        return trade
 
     async def execute(
         self,
@@ -57,44 +185,36 @@ class TradeExecutor:
             logger.warning("Trade blocked: %s", e)
             return None
 
-        entry_price = market.get("probability", 0.5)
+        go_live = self._should_go_live(platform)
+
+        # Cap bet size to LIVE_MAX_BET_MANA in live mode before placing
+        if go_live and bet_size > settings.live_max_bet_mana:
+            logger.info(
+                "Capping live bet from M$%.2f to M$%d (LIVE_MAX_BET_MANA)",
+                bet_size, settings.live_max_bet_mana,
+            )
+            bet_size = float(settings.live_max_bet_mana)
 
         trade: dict[str, Any] = {
             "market_id": market.get("id"),
             "prediction_id": prediction_id,
             "direction": direction,
             "size": bet_size,
-            "entry_price": entry_price,
-            "is_paper": int(self.paper_mode),
+            "entry_price": market.get("probability", 0.5),
+            "is_paper": 0 if go_live else 1,
         }
-
-        # Add Polymarket-specific simulated costs
         if platform == "polymarket":
-            spread_cost = (spread or 0.01) * bet_size  # default 1% spread
-            gas_fee = POLYMARKET_GAS_FEE_USD
-            trade["spread_cost"] = spread_cost
-            trade["gas_fee"] = gas_fee
-            trade["total_cost"] = spread_cost + gas_fee
-            label = "POLYMARKET PAPER"
-        else:
-            label = "PAPER" if self.paper_mode else "LIVE"
+            trade.update(self._polymarket_costs(bet_size, spread))
 
-        if self.paper_mode:
-            cost_str = ""
-            if platform == "polymarket":
-                cost_str = f" (spread: ${trade['spread_cost']:.3f}, gas: ${gas_fee:.3f})"
-            logger.info(
-                "%s TRADE: %s %s $%.2f on %s%s",
-                label,
-                direction,
-                market.get("question", "?")[:60],
-                bet_size,
-                market.get("id"),
-                cost_str,
+        if not go_live:
+            label = (
+                "POLYMARKET PAPER" if platform == "polymarket"
+                else "PAPER"
             )
-        else:
-            logger.info("LIVE TRADE: placing bet via Manifold API")
-            # TODO: call ManifoldClient.place_bet() when live trading is enabled
-            raise NotImplementedError("Live trading not yet implemented — set paper_mode=True")
+            self._log_paper_trade(
+                label, direction, market.get("question", "?"),
+                bet_size, str(market.get("id")), trade, platform,
+            )
+            return trade
 
-        return trade
+        return await self._place_live_bet(market, direction, bet_size, trade)

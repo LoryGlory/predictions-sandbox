@@ -225,15 +225,27 @@ async def _run_polymarket_cycle(db, estimator, executor, guardian) -> None:
         if trade:
             await db.execute(
                 """INSERT INTO trades
-                   (market_id, prediction_id, direction, size, entry_price, is_paper)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (market_id, prediction_id, direction, size, entry_price,
+                    is_paper, live_bet_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     market_db_id, prediction_db_id,
                     trade["direction"], trade["size"], trade["entry_price"],
-                    trade["is_paper"],
+                    trade["is_paper"], trade.get("live_bet_id"),
                 ),
             )
             await db.commit()
+
+
+async def _count_live_bets_today() -> int:
+    """Provider used by TradeExecutor to enforce LIVE_MAX_BETS_PER_DAY."""
+    async with get_db(read_only=True) as db:
+        async with db.execute(
+            "SELECT COUNT(*) as n FROM trades "
+            "WHERE is_paper=0 AND timestamp > datetime('now','-1 day')"
+        ) as cur:
+            row = await cur.fetchone()
+            return row["n"] if row else 0
 
 
 async def run_cycle() -> None:
@@ -243,7 +255,16 @@ async def run_cycle() -> None:
     try:
         guardian = BudgetGuardian.from_settings()
         estimator = Estimator()
-        executor = TradeExecutor(guardian=guardian, paper_mode=True)
+        # paper_mode acts as the master kill switch. When MANIFOLD_MODE=live,
+        # we set paper_mode=False; the executor still routes Polymarket to
+        # paper (no wallet) and Manifold to the live API.
+        is_live = settings.manifold_mode.lower() == "live"
+        executor = TradeExecutor(
+            guardian=guardian,
+            paper_mode=not is_live,
+            daily_live_count_provider=_count_live_bets_today,
+        )
+        executor.reset_cycle_counter()
 
         async with ManifoldClient() as manifold:
             raw_markets = await manifold.get_markets(limit=settings.max_markets_per_cycle * 3)
@@ -514,8 +535,9 @@ async def run_cycle() -> None:
                 if trade:
                     await db.execute(
                         """INSERT INTO trades
-                           (market_id, prediction_id, direction, size, entry_price, is_paper)
-                           VALUES (?, ?, ?, ?, ?, ?)""",
+                           (market_id, prediction_id, direction, size, entry_price,
+                            is_paper, live_bet_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
                         (
                             market_db_id,
                             prediction_db_id,
@@ -523,6 +545,7 @@ async def run_cycle() -> None:
                             trade["size"],
                             trade["entry_price"],
                             trade["is_paper"],
+                            trade.get("live_bet_id"),
                         ),
                     )
                     await db.commit()
