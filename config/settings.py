@@ -16,8 +16,7 @@ def _parse_bool(val: str) -> bool:
 
 # Categories where Claude has proven edge (backtest-derived, 2026-04-01)
 CATEGORY_WHITELIST: list[str] = [
-    # Domain-knowledge categories where Claude has demonstrated positive skill
-    # vs the market on resolved predictions (see scripts/run_category_analysis.py).
+    # Proven positive skill (verified via scripts/run_category_analysis.py):
     "competitive-programming",
     "competition-math",
     "competitive-gaming",
@@ -26,6 +25,15 @@ CATEGORY_WHITELIST: list[str] = [
     "commitment-devices",
     "fun",
     "fairlyrandom",
+    # Exploratory additions — added to boost live-trading volume. These are
+    # categories where Claude's training data is rich but we haven't yet
+    # confirmed positive skill empirically. Revisit once we have ≥10 resolved
+    # predictions per category.
+    "ai",
+    "claude",
+    "technology-default",
+    "chess",
+    "esports",
 ]
 
 # Categories where Claude has no edge or negative expected value
