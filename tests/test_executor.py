@@ -3,6 +3,7 @@
 No real API calls — the Manifold client is fully mocked.
 """
 import asyncio
+import time
 from unittest.mock import patch
 
 import pytest
@@ -36,8 +37,20 @@ class _FakeManifoldClient:
         return self.response
 
 
-def _market(mid: str = "mkt_1", q: str = "Will X happen?") -> dict:
-    return {"id": mid, "question": q, "probability": 0.55}
+def _market(
+    mid: str = "mkt_1",
+    q: str = "Will X happen?",
+    close_in_days: float = 30.0,
+) -> dict:
+    """Build a fake Manifold market dict. Default closeTime is 30d from now,
+    well inside the LIVE_MAX_DAYS_TO_CLOSE=90 horizon used by tests."""
+    close_time_ms = int((time.time() + close_in_days * 86400) * 1000)
+    return {
+        "id": mid,
+        "question": q,
+        "probability": 0.55,
+        "closeTime": close_time_ms,
+    }
 
 
 def _mock_settings(**overrides):
@@ -48,6 +61,7 @@ def _mock_settings(**overrides):
         "live_max_bet_mana": 5,
         "live_max_bets_per_cycle": 3,
         "live_max_bets_per_day": 20,
+        "live_max_days_to_close": 90,
     }
     defaults.update(overrides)
     # Other Settings fields use their dataclass defaults
@@ -236,6 +250,69 @@ async def test_live_bet_below_one_mana_skipped():
         trade = await executor.execute(_market(), direction="yes", bet_size=0.3)
 
     assert trade is None
+    assert fake_client.calls == []
+
+
+# ── Close-time horizon tests ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_live_skipped_when_market_closes_too_far_out():
+    """A market closing 200 days from now is outside the 90-day live horizon."""
+    fake_client = _FakeManifoldClient()
+    with patch("src.trading.executor.settings", _mock_settings(live_max_days_to_close=90)):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=False, manifold_client=fake_client,
+        )
+        far_market = _market(close_in_days=200)
+        trade = await executor.execute(far_market, direction="yes", bet_size=3.0)
+    assert trade is not None
+    assert trade["is_paper"] == 1  # downgraded to paper
+    assert fake_client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_live_proceeds_when_market_closes_within_horizon():
+    """A market closing 30 days from now is well inside the 90-day horizon."""
+    fake_client = _FakeManifoldClient()
+    with patch("src.trading.executor.settings", _mock_settings()):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=False, manifold_client=fake_client,
+        )
+        trade = await executor.execute(_market(close_in_days=30), direction="yes", bet_size=3.0)
+    assert trade is not None
+    assert trade["is_paper"] == 0
+    assert len(fake_client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_live_skipped_when_market_has_no_close_time():
+    """Markets without closeTime are treated as outside the horizon (conservative)."""
+    fake_client = _FakeManifoldClient()
+    market_no_close = {"id": "mkt_unknown", "question": "Q?", "probability": 0.6}
+    with patch("src.trading.executor.settings", _mock_settings()):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=False, manifold_client=fake_client,
+        )
+        trade = await executor.execute(market_no_close, direction="yes", bet_size=3.0)
+    assert trade is not None
+    assert trade["is_paper"] == 1
+    assert fake_client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_horizon_does_not_affect_paper_mode():
+    """Paper mode shouldn't care about closeTime — calibration still flows."""
+    fake_client = _FakeManifoldClient()
+    with patch("src.trading.executor.settings", _mock_settings()):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=True, manifold_client=fake_client,
+        )
+        # Long-horizon market — should still produce a paper trade
+        far_market = _market(close_in_days=365)
+        trade = await executor.execute(far_market, direction="yes", bet_size=3.0)
+    assert trade is not None
+    assert trade["is_paper"] == 1
     assert fake_client.calls == []
 
 

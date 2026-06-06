@@ -154,6 +154,10 @@ class Settings:
     live_max_bet_mana: int = int(os.getenv("LIVE_MAX_BET_MANA", "5"))
     live_max_bets_per_cycle: int = int(os.getenv("LIVE_MAX_BETS_PER_CYCLE", "3"))
     live_max_bets_per_day: int = int(os.getenv("LIVE_MAX_BETS_PER_DAY", "20"))
+    # Skip live bets on markets that close more than this many days from now.
+    # Paper trades are still placed, so calibration data continues to flow.
+    # Default 90 days keeps live P&L feedback within a useful timeframe.
+    live_max_days_to_close: int = int(os.getenv("LIVE_MAX_DAYS_TO_CLOSE", "90"))
 
 
 settings = Settings()

@@ -2,15 +2,18 @@
 
 Paper mode (default): logs trades to the DB without calling any platform API.
 Live mode: calls the Manifold API to place real-mana bets. Live mode is gated
-by MANIFOLD_MODE=live in settings, plus three hard safety caps:
+by MANIFOLD_MODE=live in settings, plus four hard safety caps:
 
   - LIVE_MAX_BET_MANA caps the size of every single bet
   - LIVE_MAX_BETS_PER_CYCLE caps how many live bets one pipeline cycle can place
   - LIVE_MAX_BETS_PER_DAY caps how many live bets across the rolling 24h window
+  - LIVE_MAX_DAYS_TO_CLOSE skips live bets on markets that resolve too far out
+    (paper trades on those markets still happen for calibration data)
 
 Polymarket bets are always paper (no wallet, no live executor path).
 """
 import logging
+import time
 from typing import Any
 
 from config.settings import settings
@@ -56,13 +59,44 @@ class TradeExecutor:
         """Call at the start of every pipeline cycle to reset the per-cycle cap."""
         self.cycle_live_count = 0
 
-    def _should_go_live(self, platform: str) -> bool:
+    @staticmethod
+    def _within_close_horizon(market: dict[str, Any]) -> bool:
+        """True if the market closes within LIVE_MAX_DAYS_TO_CLOSE from now.
+
+        Manifold returns `closeTime` in milliseconds since epoch. Markets
+        without a closeTime are treated as outside the horizon (conservative —
+        live trading should only happen when we know the resolution timeframe).
+        """
+        close_time_ms = market.get("closeTime")
+        if not close_time_ms:
+            return False
+        now_ms = time.time() * 1000
+        horizon_ms = settings.live_max_days_to_close * 86400 * 1000
+        return (close_time_ms - now_ms) <= horizon_ms
+
+    def _should_go_live(self, platform: str, market: dict[str, Any]) -> bool:
         """Returns True if this specific trade should hit the Manifold live API."""
         if self.paper_mode:
             return False
         if platform != "manifold":
             return False
-        return settings.manifold_mode.lower() == "live"
+        if settings.manifold_mode.lower() != "live":
+            return False
+        if not self._within_close_horizon(market):
+            close_time_ms = market.get("closeTime")
+            if close_time_ms:
+                days_out = (close_time_ms - time.time() * 1000) / 86400000
+                logger.info(
+                    "Live bet skipped on %s — closes in %.0fd (> %d cap)",
+                    market.get("id"), days_out, settings.live_max_days_to_close,
+                )
+            else:
+                logger.info(
+                    "Live bet skipped on %s — no closeTime in market data",
+                    market.get("id"),
+                )
+            return False
+        return True
 
     async def _check_live_caps(self, bet_size: float) -> tuple[bool, str]:
         """Returns (allowed, reason). reason is empty when allowed."""
@@ -185,7 +219,7 @@ class TradeExecutor:
             logger.warning("Trade blocked: %s", e)
             return None
 
-        go_live = self._should_go_live(platform)
+        go_live = self._should_go_live(platform, market)
 
         # Cap bet size to LIVE_MAX_BET_MANA in live mode before placing
         if go_live and bet_size > settings.live_max_bet_mana:
