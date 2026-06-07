@@ -28,6 +28,10 @@
         <h3>{{ cost_today|usd }}</h3>
         <small>Cost today</small>
     </article>
+    <article class="stat-card">
+        <h3>{% if manifold %}M${{ "%.0f"|format(manifold.balance) }}{% else %}—{% endif %}</h3>
+        <small>Manifold balance{% if manifold and manifold.profit_cached %} ({{ "%+.0f"|format(manifold.profit_cached) }} lifetime){% endif %}</small>
+    </article>
 </div>
 
 <h2>Recent Predictions</h2>

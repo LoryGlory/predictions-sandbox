@@ -89,6 +89,19 @@ class ManifoldClient:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         reraise=True,
     )
+    async def get_me(self) -> dict[str, Any]:
+        """Return the authenticated user's profile, including current mana balance."""
+        assert self._client is not None, _ERR_CONTEXT_MANAGER
+        resp = await self._client.get("/me")
+        resp.raise_for_status()
+        return resp.json()
+
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     async def place_bet(
         self,
         market_id: str,

@@ -1,11 +1,36 @@
 """Dashboard data access layer — all SQL queries for the read-only dashboard."""
 import json
+import logging
 
 from config.settings import CATEGORY_BLACKLIST
 from src.db.connection import get_db
+from src.markets.manifold import ManifoldClient
 from src.tracking.calibration import brier_skill_score
 
+logger = logging.getLogger(__name__)
+
 _BLACKLIST_SET = frozenset(CATEGORY_BLACKLIST)
+
+
+async def get_manifold_balance() -> dict[str, float] | None:
+    """Fetch the authenticated user's live Manifold balance + lifetime P&L.
+
+    Returns None on any failure (missing API key, network, auth) so the
+    dashboard renders "—" gracefully instead of crashing.
+    """
+    try:
+        async with ManifoldClient() as client:
+            me = await client.get_me()
+    except Exception as e:
+        logger.warning("Could not fetch Manifold balance: %s", e)
+        return None
+    return {
+        "balance": float(me.get("balance", 0.0)),
+        "total_deposits": float(me.get("totalDeposits", 0.0)),
+        "profit_cached": float(
+            (me.get("profitCached") or {}).get("allTime", 0.0)
+        ),
+    }
 
 
 def _passes_filter(tags_json: str | None) -> bool:
@@ -66,6 +91,9 @@ async def get_overview_stats() -> dict:
                ORDER BY p.timestamp DESC LIMIT 10"""
         ) as cur:
             stats["recent_predictions"] = [dict(r) for r in await cur.fetchall()]
+
+    # Live Manifold balance (best-effort; renders as "—" if unavailable)
+    stats["manifold"] = await get_manifold_balance()
 
     return stats
 
