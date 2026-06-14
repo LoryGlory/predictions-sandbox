@@ -29,11 +29,13 @@ CATEGORY_WHITELIST: list[str] = [
     # categories where Claude's training data is rich but we haven't yet
     # confirmed positive skill empirically. Revisit once we have ≥10 resolved
     # predictions per category.
-    "ai",
     "claude",
-    "technology-default",
     "chess",
     "esports",
+    # NOTE: "ai" and "technology-default" were removed after the first live
+    # loss (M$7.50 on Elon Musk reaching $1T on the SpaceX IPO date).
+    # Both categories were attracting real-time-finance markets where Claude's
+    # training cutoff is fatal — exactly the pattern from blog post #1.
 ]
 
 # Categories where Claude has no edge or negative expected value
