@@ -58,6 +58,27 @@ def test_accepts_no_close_time():
     assert is_tradeable(binary_market(closeTime=None)) is True
 
 
+def test_rejects_close_time_past_year_9999():
+    """Manifold occasionally has markets with closeTime > Python's datetime
+    max (e.g. 'brain uploaded to ASI'). One such market in a batch used to
+    crash the entire filter_markets() call; now it's just rejected."""
+    # closeTime in milliseconds for year 10001 (past Python's datetime max)
+    absurd_close = 253402300800000 * 10
+    assert is_tradeable(binary_market(closeTime=absurd_close)) is False
+
+
+def test_filter_markets_survives_one_bad_close_time():
+    """A single market with absurd closeTime must not crash the whole filter."""
+    good_market = binary_market(question="Will normal thing happen?")
+    bad_market = binary_market(
+        question="Will brain upload to ASI?",
+        closeTime=253402300800000 * 10,  # far past year 9999
+    )
+    result = filter_markets([good_market, bad_market], limit=10)
+    # Should get the good one, drop the bad one, no crash
+    assert len(result) == 1
+
+
 def test_filter_markets_caps_results():
     markets = [binary_market() for _ in range(30)]
     result = filter_markets(markets, limit=5)

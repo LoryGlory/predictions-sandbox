@@ -174,7 +174,12 @@ def is_tradeable(market: dict[str, Any], min_prob: float = 0.05, max_prob: float
 
     close_time_ms = market.get("closeTime")
     if close_time_ms:
-        close_dt = datetime.fromtimestamp(close_time_ms / 1000, tz=UTC)
+        try:
+            close_dt = datetime.fromtimestamp(close_time_ms / 1000, tz=UTC)
+        except (ValueError, OverflowError, OSError):
+            # Manifold occasionally has markets with closeTime past year 9999
+            # ("Will my brain be uploaded to ASI?"). Treat them as untradeable.
+            return False
         now = datetime.now(tz=UTC)
         hours_remaining = (close_dt - now).total_seconds() / 3600
         if hours_remaining < 24:
