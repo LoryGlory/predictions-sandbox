@@ -29,13 +29,14 @@ CATEGORY_WHITELIST: list[str] = [
     # categories where Claude's training data is rich but we haven't yet
     # confirmed positive skill empirically. Revisit once we have ≥10 resolved
     # predictions per category.
-    "claude",
     "chess",
     "esports",
-    # NOTE: "ai" and "technology-default" were removed after the first live
-    # loss (M$7.50 on Elon Musk reaching $1T on the SpaceX IPO date).
-    # Both categories were attracting real-time-finance markets where Claude's
-    # training cutoff is fatal — exactly the pattern from blog post #1.
+    # REMOVED categories (kept as comments for the record):
+    #   "ai", "technology-default" — removed after M$7.50 Musk-IPO loss.
+    #   "claude" — removed after Fable-5 rollout losses (M$5 realized, M$20
+    #     open at time of removal). Claude bot doesn't have a reliable model
+    #     of Anthropic's own release timeline — the same "training-cutoff blind
+    #     to recent product state" failure as the Musk case.
 ]
 
 # Categories where Claude has no edge or negative expected value
@@ -61,6 +62,11 @@ CATEGORY_BLACKLIST: list[str] = [
     "elections",
     "economics-default",
     "stocks",
+    # Claude-product-rollout markets — Claude's world model of its own release
+    # timeline is stale by training cutoff. Belt-and-suspenders in case one of
+    # these tags routes through a category that wasn't in the whitelist itself.
+    "anthropic",
+    "fable",
 ]
 
 
