@@ -212,8 +212,12 @@ async def test_reset_cycle_counter_clears_block():
 
 
 @pytest.mark.asyncio
-async def test_live_api_failure_falls_back_to_paper():
-    """If place_bet raises, we log a paper trade rather than crash the cycle."""
+async def test_live_api_failure_recorded_as_unconfirmed_live():
+    """If place_bet raises, the bet state is UNKNOWN — Manifold may have
+    executed it and only the response was lost. Conservative accounting:
+    record as live (is_paper=0) with no bet id, so it counts against the
+    daily cap and is reconcilable against the Manifold UI. Never downgrade
+    a possibly-real bet to paper."""
     fake_client = _FakeManifoldClient(raise_exc=RuntimeError("Manifold returned 503"))
     with patch("src.trading.executor.settings", _mock_settings()):
         executor = TradeExecutor(
@@ -222,8 +226,31 @@ async def test_live_api_failure_falls_back_to_paper():
         trade = await executor.execute(_market(), direction="yes", bet_size=3.0)
 
     assert trade is not None
+    assert trade["is_paper"] == 0          # unknown state counts as live
+    assert trade["live_bet_id"] is None    # but with no confirmed bet id
+    # And it consumes cycle-cap headroom (conservative)
+    assert executor.cycle_live_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cap_blocked_bet_still_downgrades_to_paper():
+    """Cap blocks happen BEFORE the API call — the bet definitively was not
+    placed, so paper downgrade is correct there (unlike API failures)."""
+    fake_client = _FakeManifoldClient()
+
+    async def at_cap() -> int:
+        return 20
+
+    with patch("src.trading.executor.settings", _mock_settings(live_max_bets_per_day=20)):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=False,
+            manifold_client=fake_client, daily_live_count_provider=at_cap,
+        )
+        trade = await executor.execute(_market(), direction="yes", bet_size=3.0)
+
+    assert trade is not None
     assert trade["is_paper"] == 1
-    assert "live_bet_id" not in trade
+    assert fake_client.calls == []  # never reached the API
 
 
 @pytest.mark.asyncio
@@ -314,6 +341,57 @@ async def test_horizon_does_not_affect_paper_mode():
     assert trade is not None
     assert trade["is_paper"] == 1
     assert fake_client.calls == []
+
+
+# ── Review-batch regression tests ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_live_skipped_when_market_already_closed():
+    """Horizon check must have a lower bound: a market whose closeTime is in
+    the past is not 'within horizon' — betting into it is pure noise."""
+    fake_client = _FakeManifoldClient()
+    with patch("src.trading.executor.settings", _mock_settings()):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=False, manifold_client=fake_client,
+        )
+        closed_market = _market(close_in_days=-2)  # closed two days ago
+        trade = await executor.execute(closed_market, direction="yes", bet_size=3.0)
+    assert trade is not None
+    assert trade["is_paper"] == 1
+    assert fake_client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_guardian_records_post_cap_size():
+    """The budget guardian must be charged the capped amount actually risked,
+    not the raw Kelly suggestion."""
+    recorded: list[float] = []
+
+    class _RecordingGuardian:
+        def check_and_record(self, amount: float) -> None:
+            recorded.append(amount)
+
+    fake_client = _FakeManifoldClient()
+    with patch("src.trading.executor.settings", _mock_settings(live_max_bet_mana=5)):
+        executor = TradeExecutor(
+            guardian=_RecordingGuardian(), paper_mode=False,
+            manifold_client=fake_client,
+        )
+        await executor.execute(_market(), direction="yes", bet_size=20.0)
+
+    assert recorded == [5.0]  # capped size, not the requested 20
+
+
+def test_place_bet_has_no_retry_wrapper():
+    """place_bet must never be retried: /bet is a non-idempotent money-moving
+    POST. A timeout doesn't mean the bet failed — retrying can place it twice.
+    Tenacity attaches a `.retry` attribute to wrapped functions; place_bet
+    must not have one (the GET endpoints keep theirs)."""
+    from src.markets.manifold import ManifoldClient
+    assert not hasattr(ManifoldClient.place_bet, "retry")
+    assert hasattr(ManifoldClient.get_market, "retry")     # GETs still retry
+    assert hasattr(ManifoldClient.get_markets, "retry")
 
 
 # Ensure asyncio module is imported (used by tests above for completeness)

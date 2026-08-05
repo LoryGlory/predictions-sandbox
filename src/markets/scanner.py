@@ -216,12 +216,46 @@ def get_tags(market: dict[str, Any]) -> list[str]:
 # ── Polymarket-specific filtering ────────────────────────────────────────
 
 
+def _polymarket_yes_price(market: dict[str, Any]) -> float | None:
+    """Parse the YES price from a Polymarket market dict, or None if absent/bad.
+
+    Polymarket returns outcomePrices as a JSON string like '["0.535", "0.465"]'.
+    """
+    outcome_prices = market.get("outcomePrices")
+    if isinstance(outcome_prices, str):
+        try:
+            outcome_prices = json.loads(outcome_prices)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if not outcome_prices:
+        return None
+    try:
+        return float(outcome_prices[0])
+    except (ValueError, TypeError, IndexError):
+        return None
+
+
+def _polymarket_closes_too_soon(market: dict[str, Any]) -> bool:
+    """True if the market closes within 1 hour (or has an unparseable date we
+    can safely ignore — falls through to False)."""
+    end_date = market.get("endDate") or market.get("end_date_iso")
+    if not end_date:
+        return False
+    try:
+        close_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return False
+    hours_remaining = (close_dt - datetime.now(tz=UTC)).total_seconds() / 3600
+    return hours_remaining < 1
+
+
 def is_polymarket_tradeable(market: dict[str, Any]) -> bool:
     """Return True if a Polymarket market is worth paper-trading.
 
     Filters for:
     - Binary markets only (YES/NO outcomes)
     - Sufficient liquidity (volume > min threshold)
+    - Price in the 0.05-0.95 band (degenerate prices break Kelly)
     - Not closing within 1 hour
     - Not already resolved
     - English title
@@ -245,17 +279,18 @@ def is_polymarket_tradeable(market: dict[str, Any]) -> bool:
     if volume < settings.polymarket_min_volume:
         return False
 
+    # Price sanity — mirror Manifold's 0.05-0.95 band. A price of exactly
+    # 0 or 1 (settled-in-practice longshots) makes kelly_fraction raise
+    # ValueError and would abort the whole pipeline cycle downstream.
+    yes_price = _polymarket_yes_price(market)
+    if yes_price is not None and not (0.05 <= yes_price <= 0.95):
+        return False
+    if yes_price is None and market.get("outcomePrices"):
+        return False  # prices present but unparseable — don't trade blind
+
     # Closing soon check (within 1 hour)
-    end_date = market.get("endDate") or market.get("end_date_iso")
-    if end_date:
-        try:
-            close_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-            now = datetime.now(tz=UTC)
-            hours_remaining = (close_dt - now).total_seconds() / 3600
-            if hours_remaining < 1:
-                return False
-        except (ValueError, TypeError):
-            pass
+    if _polymarket_closes_too_soon(market):
+        return False
 
     # Non-English check
     question = market.get("question", "")

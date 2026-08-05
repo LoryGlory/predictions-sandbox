@@ -96,19 +96,18 @@ class ManifoldClient:
         resp.raise_for_status()
         return resp.json()
 
-    @retry(
-        retry=retry_if_exception_type(httpx.HTTPError),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        reraise=True,
-    )
+    # NO @retry here — deliberately. /bet is a non-idempotent, money-moving
+    # POST with no idempotency key. A timeout does not mean the bet failed:
+    # Manifold may have executed it and only the response was lost. Retrying
+    # would place the same bet again with real mana. One attempt, and the
+    # caller treats any exception as "state unknown" (see executor).
     async def place_bet(
         self,
         market_id: str,
         outcome: str,
         amount: float,
     ) -> dict[str, Any]:
-        """Place a bet on a market.
+        """Place a bet on a market. Single attempt — never retried.
 
         Args:
             market_id: Manifold market ID.

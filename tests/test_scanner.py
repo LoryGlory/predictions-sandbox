@@ -383,6 +383,26 @@ def test_polymarket_rejects_invalid_outcomes_string():
     assert is_polymarket_tradeable(_poly_market(outcomes="not valid json")) is False
 
 
+def test_polymarket_rejects_degenerate_price_zero():
+    """A YES price of exactly 0 would make kelly_fraction raise ValueError
+    downstream and abort the entire pipeline cycle."""
+    assert is_polymarket_tradeable(_poly_market(outcomePrices='["0", "1"]')) is False
+
+
+def test_polymarket_rejects_degenerate_price_one():
+    assert is_polymarket_tradeable(_poly_market(outcomePrices='["1", "0"]')) is False
+
+
+def test_polymarket_rejects_extreme_price_outside_band():
+    """Mirror Manifold's 0.05-0.95 tradeable band."""
+    assert is_polymarket_tradeable(_poly_market(outcomePrices='["0.02", "0.98"]')) is False
+    assert is_polymarket_tradeable(_poly_market(outcomePrices='["0.97", "0.03"]')) is False
+
+
+def test_polymarket_accepts_mid_band_price():
+    assert is_polymarket_tradeable(_poly_market(outcomePrices='["0.55", "0.45"]')) is True
+
+
 # ── needs_realtime_search tests ─────────────────────────────────────────
 
 

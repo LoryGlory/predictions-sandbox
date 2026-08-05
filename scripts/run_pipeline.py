@@ -14,9 +14,12 @@ One cycle:
 7. Log everything to SQLite
 """
 import asyncio
+import fcntl
 import json
 import logging
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from config.settings import settings
 from src.analysis.estimator import Estimator
@@ -562,5 +565,35 @@ async def run_cycle() -> None:
         await notify_error(str(e), context="run_cycle")
 
 
+# Lock file lives next to the DB so it's on persistent storage, not /tmp
+_LOCK_PATH = Path(__file__).resolve().parent.parent / ".pipeline.lock"
+
+
+def _acquire_lock() -> "object | None":
+    """Try to take an exclusive non-blocking lock. Returns the open file
+    handle (kept open for the process lifetime) or None if another pipeline
+    instance is already running.
+
+    Without this, a cycle that runs longer than the 30-min cron interval
+    (web-search estimates can) overlaps with the next one: each process has
+    its own in-memory cycle counters, so LIVE_MAX_BETS_PER_CYCLE doubles,
+    and both race the daily-cap check-then-act against the DB.
+    """
+    lock_file = open(_LOCK_PATH, "w")  # noqa: SIM115 — handle must outlive this fn
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        return None
+    return lock_file
+
+
 if __name__ == "__main__":
+    _lock = _acquire_lock()
+    if _lock is None:
+        logging.basicConfig(level=logging.INFO)
+        logging.getLogger(__name__).warning(
+            "Another pipeline instance is running — skipping this cycle"
+        )
+        sys.exit(0)
     asyncio.run(run_cycle())

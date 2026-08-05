@@ -72,7 +72,12 @@ class TradeExecutor:
             return False
         now_ms = time.time() * 1000
         horizon_ms = settings.live_max_days_to_close * 86400 * 1000
-        return (close_time_ms - now_ms) <= horizon_ms
+        remaining_ms = close_time_ms - now_ms
+        # Lower bound matters too: a negative remaining means the market has
+        # already closed — betting into it would be pure noise. The scanner's
+        # 24h filter usually catches this upstream, but this is the
+        # defense-in-depth layer for real money, so it defends.
+        return 0 < remaining_ms <= horizon_ms
 
     def _should_go_live(self, platform: str, market: dict[str, Any]) -> bool:
         """Returns True if this specific trade should hit the Manifold live API."""
@@ -171,10 +176,21 @@ class TradeExecutor:
             else:
                 bet_resp = await client.place_bet(market_id, outcome, amount)
         except Exception:
+            # State UNKNOWN: place_bet is single-attempt (no retry), but an
+            # exception here doesn't prove the bet failed — Manifold may have
+            # executed it and only the response was lost. Conservative
+            # accounting: record as LIVE with no bet id, so it counts against
+            # the daily cap and shows up for manual reconciliation against
+            # the Manifold UI. Do NOT downgrade to paper — that would hide a
+            # potentially-real bet as a simulation.
             logger.exception(
-                "Live bet failed for %s — falling back to paper", market_id,
+                "Live bet UNCONFIRMED for %s — recording as live with no bet id; "
+                "reconcile manually against Manifold",
+                market_id,
             )
-            trade["is_paper"] = 1
+            self.cycle_live_count += 1
+            trade["is_paper"] = 0
+            trade["live_bet_id"] = None
             return trade
 
         self.cycle_live_count += 1
@@ -213,21 +229,23 @@ class TradeExecutor:
             logger.debug("Skipping trade — bet size is zero")
             return None
 
-        try:
-            self.guardian.check_and_record(bet_size)
-        except (BudgetExceededError, KillSwitchError) as e:
-            logger.warning("Trade blocked: %s", e)
-            return None
-
         go_live = self._should_go_live(platform, market)
 
-        # Cap bet size to LIVE_MAX_BET_MANA in live mode before placing
+        # Cap bet size to LIVE_MAX_BET_MANA in live mode BEFORE recording
+        # against the budget — the guardian must track what we actually risk,
+        # not the pre-cap Kelly suggestion.
         if go_live and bet_size > settings.live_max_bet_mana:
             logger.info(
                 "Capping live bet from M$%.2f to M$%d (LIVE_MAX_BET_MANA)",
                 bet_size, settings.live_max_bet_mana,
             )
             bet_size = float(settings.live_max_bet_mana)
+
+        try:
+            self.guardian.check_and_record(bet_size)
+        except (BudgetExceededError, KillSwitchError) as e:
+            logger.warning("Trade blocked: %s", e)
+            return None
 
         trade: dict[str, Any] = {
             "market_id": market.get("id"),
