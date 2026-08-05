@@ -257,6 +257,19 @@ async def run_cycle() -> None:
 
     try:
         guardian = BudgetGuardian.from_settings()
+        # Seed guardian state from the trades table — the pipeline is a
+        # process-per-cycle cron job, so without this the daily/total limits
+        # and kill switch would reset to zero every 30 minutes and only ever
+        # constrain a single cycle.
+        async with get_db(read_only=True) as seed_db:
+            await guardian.seed_from_db(seed_db)
+        if guardian.kill_switch_active:
+            logger.warning(
+                "KILL SWITCH ACTIVE: net live losses M$%.2f >= threshold M$%.2f "
+                "— live bets halted this cycle (paper continues)",
+                guardian.total_losses, guardian.kill_switch_threshold,
+            )
+
         estimator = Estimator()
         # paper_mode acts as the master kill switch. When MANIFOLD_MODE=live,
         # we set paper_mode=False; the executor still routes Polymarket to
@@ -539,8 +552,8 @@ async def run_cycle() -> None:
                     await db.execute(
                         """INSERT INTO trades
                            (market_id, prediction_id, direction, size, entry_price,
-                            is_paper, live_bet_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                            is_paper, live_bet_id, filled_amount, prob_after, shares)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             market_db_id,
                             prediction_db_id,
@@ -549,6 +562,9 @@ async def run_cycle() -> None:
                             trade["entry_price"],
                             trade["is_paper"],
                             trade.get("live_bet_id"),
+                            trade.get("filled_amount"),
+                            trade.get("prob_after"),
+                            trade.get("shares"),
                         ),
                     )
                     await db.commit()

@@ -43,3 +43,38 @@ def compute_pnl(
     # Winning bet: payout is size / effective_price; profit is that minus stake
     effective_price = entry_price if direction == "yes" else (1 - entry_price)
     return size * (1.0 / effective_price - 1.0)
+
+
+def compute_pnl_from_shares(
+    direction: str,
+    shares: float,
+    size: float,
+    outcome: int,
+) -> float:
+    """Exact realised P&L for a live Manifold trade using the actual fill.
+
+    Manifold's bet response reports `shares` — the number of outcome shares
+    bought. Each winning share pays out exactly 1 at resolution, so:
+        win  → shares - size
+        lose → -size
+    This is exact regardless of how far the bet itself moved the CPMM price,
+    unlike compute_pnl which assumes the whole fill happened at the pre-bet
+    price (optimistic).
+
+    Args:
+        direction: "yes" or "no" — the side bet on. Case-insensitive.
+        shares: Outcome shares received, from the Manifold bet response.
+        size: Stake in mana.
+        outcome: 1 if the market resolved YES, 0 if NO.
+    """
+    if outcome not in (0, 1):
+        raise ValueError(f"outcome must be 0 or 1, got {outcome}")
+    if shares < 0:
+        raise ValueError(f"shares must be >= 0, got {shares}")
+
+    direction = direction.lower()
+    won = (
+        (direction == "yes" and outcome == 1)
+        or (direction == "no" and outcome == 0)
+    )
+    return (shares - size) if won else -size

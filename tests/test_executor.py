@@ -17,6 +17,9 @@ class _FakeGuardian:
     def check_and_record(self, _amount: float) -> None:
         return None
 
+    def paper_trading_allowed(self) -> bool:
+        return True
+
 
 class _FakeManifoldClient:
     """Replaces ManifoldClient for tests. Records calls and returns a stub bet."""

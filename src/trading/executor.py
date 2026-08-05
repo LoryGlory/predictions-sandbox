@@ -197,6 +197,10 @@ class TradeExecutor:
         trade["live_bet_id"] = bet_resp.get("id")
         trade["filled_amount"] = bet_resp.get("amount") or amount
         trade["prob_after"] = bet_resp.get("probAfter")
+        # shares = exact payout if this bet wins. Persisting it makes live
+        # P&L exact (shares - stake) instead of approximated from the
+        # pre-bet market price, which is optimistic on a CPMM.
+        trade["shares"] = bet_resp.get("shares")
         logger.info(
             "LIVE TRADE PLACED: %s %s M$%d on %s (filled M$%s, probAfter=%s)",
             outcome, market.get("question", "?")[:50], amount, market_id,
@@ -241,10 +245,16 @@ class TradeExecutor:
             )
             bet_size = float(settings.live_max_bet_mana)
 
-        try:
-            self.guardian.check_and_record(bet_size)
-        except (BudgetExceededError, KillSwitchError) as e:
-            logger.warning("Trade blocked: %s", e)
+        # Budget applies to real money only. Paper trades spend nothing but
+        # still honor calibration mode (daily_limit=0 blocks everything).
+        if go_live:
+            try:
+                self.guardian.check_and_record(bet_size)
+            except (BudgetExceededError, KillSwitchError) as e:
+                logger.warning("Live trade blocked: %s", e)
+                return None
+        elif not self.guardian.paper_trading_allowed():
+            logger.debug("Paper trade blocked — calibration mode (daily_limit=0)")
             return None
 
         trade: dict[str, Any] = {

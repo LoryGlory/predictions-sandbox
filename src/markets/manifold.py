@@ -96,6 +96,21 @@ class ManifoldClient:
         resp.raise_for_status()
         return resp.json()
 
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
+    async def get_bets(self, user_id: str, limit: int = 1000) -> list[dict[str, Any]]:
+        """Fetch a user's bets (most recent first). Read-only — safe to retry."""
+        assert self._client is not None, _ERR_CONTEXT_MANAGER
+        resp = await self._client.get(
+            "/bets", params={"userId": user_id, "limit": limit},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     # NO @retry here — deliberately. /bet is a non-idempotent, money-moving
     # POST with no idempotency key. A timeout does not mean the bet failed:
     # Manifold may have executed it and only the response was lost. Retrying

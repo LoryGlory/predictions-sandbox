@@ -16,7 +16,7 @@ from src.markets.manifold import ManifoldClient
 from src.markets.polymarket import PolymarketClient
 from src.tracking.calibration import brier_score
 from src.tracking.logger import setup_logging
-from src.trading.pnl import compute_pnl
+from src.trading.pnl import compute_pnl, compute_pnl_from_shares
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +88,13 @@ async def _outcome_from_calibration(db, market_db_id: int) -> int | None:
 async def _settle_trades_for_market(db, market_db_id: int, outcome: int) -> int:
     """Compute and store P&L for every unsettled trade on a resolved market.
 
+    Live trades with recorded fill data (shares) get exact P&L; everything
+    else falls back to the entry-price approximation.
+
     Returns the number of trades settled this call.
     """
     async with db.execute(
-        """SELECT id, direction, size, entry_price FROM trades
+        """SELECT id, direction, size, entry_price, is_paper, shares FROM trades
            WHERE market_id = ? AND pnl IS NULL""",
         (market_db_id,),
     ) as cur:
@@ -104,7 +107,14 @@ async def _settle_trades_for_market(db, market_db_id: int, outcome: int) -> int:
     settled = 0
     for t in unsettled:
         try:
-            pnl = compute_pnl(t["direction"], t["entry_price"], t["size"], outcome)
+            if not t["is_paper"] and t["shares"] is not None:
+                # Exact: shares pay out 1 each on a win, regardless of how
+                # far the bet moved the CPMM price.
+                pnl = compute_pnl_from_shares(
+                    t["direction"], t["shares"], t["size"], outcome,
+                )
+            else:
+                pnl = compute_pnl(t["direction"], t["entry_price"], t["size"], outcome)
         except ValueError as e:
             logger.warning("Skipping trade %s — bad data for pnl: %s", t["id"], e)
             continue

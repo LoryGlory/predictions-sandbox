@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS trades (
     pnl             REAL,
     is_paper        INTEGER NOT NULL DEFAULT 1,
     live_bet_id     TEXT,
+    filled_amount   REAL,
+    prob_after      REAL,
+    shares          REAL,
     timestamp       TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

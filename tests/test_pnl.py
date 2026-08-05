@@ -1,7 +1,7 @@
 """Unit tests for realised-P&L computation on settled binary-market trades."""
 import pytest
 
-from src.trading.pnl import compute_pnl
+from src.trading.pnl import compute_pnl, compute_pnl_from_shares
 
 
 def test_yes_bet_resolves_yes_profit():
@@ -73,3 +73,39 @@ def test_zero_size_zero_pnl():
     """A zero-size bet returns zero pnl regardless of outcome."""
     assert compute_pnl("yes", entry_price=0.5, size=0.0, outcome=1) == pytest.approx(0.0)
     assert compute_pnl("no", entry_price=0.5, size=0.0, outcome=0) == pytest.approx(0.0)
+
+
+# ── Exact P&L from actual fill (shares) ─────────────────────────────────
+
+
+def test_shares_pnl_win_is_shares_minus_stake():
+    """M$5 bought 9.2 YES shares; resolves YES → profit 9.2 - 5 = 4.2."""
+    assert compute_pnl_from_shares("yes", shares=9.2, size=5.0, outcome=1) == pytest.approx(4.2)
+
+
+def test_shares_pnl_loss_is_full_stake():
+    assert compute_pnl_from_shares("yes", shares=9.2, size=5.0, outcome=0) == pytest.approx(-5.0)
+
+
+def test_shares_pnl_no_side_win():
+    assert compute_pnl_from_shares("no", shares=7.5, size=5.0, outcome=0) == pytest.approx(2.5)
+
+
+def test_shares_pnl_less_optimistic_than_entry_price_approximation():
+    """The whole point: a CPMM fill averages worse than the pre-bet price.
+    Exact shares-based profit must come out below the approximation."""
+    # Pre-bet YES price 0.50 → approximation assumes 5/0.5 = 10 shares.
+    approx = compute_pnl("yes", entry_price=0.50, size=5.0, outcome=1)
+    # The bet itself moved the price, so the actual fill bought fewer.
+    exact = compute_pnl_from_shares("yes", shares=9.4, size=5.0, outcome=1)
+    assert exact < approx
+
+
+def test_shares_pnl_invalid_outcome_raises():
+    with pytest.raises(ValueError, match="outcome"):
+        compute_pnl_from_shares("yes", shares=5.0, size=5.0, outcome=2)
+
+
+def test_shares_pnl_negative_shares_raises():
+    with pytest.raises(ValueError, match="shares"):
+        compute_pnl_from_shares("yes", shares=-1.0, size=5.0, outcome=1)

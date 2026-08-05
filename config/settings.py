@@ -91,6 +91,10 @@ class Settings:
     # Budget (0 = calibration mode — log predictions but never execute trades)
     budget_daily_limit: float = float(os.getenv("BUDGET_DAILY_LIMIT", "0"))
     budget_total_limit: float = float(os.getenv("BUDGET_TOTAL_LIMIT", "50"))
+    # Kill switch trips when NET realized live losses reach this fraction of
+    # BUDGET_TOTAL_LIMIT (the bankroll envelope). Halts live trading until
+    # limits are raised or losses investigated.
+    kill_switch_loss_pct: float = float(os.getenv("KILL_SWITCH_LOSS_PCT", "0.10"))
 
     # Kelly Criterion
     kelly_fraction: float = float(os.getenv("KELLY_FRACTION", "0.25"))

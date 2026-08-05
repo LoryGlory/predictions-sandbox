@@ -37,5 +37,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         trade_cols = {row[1] async for row in cur}
     if "live_bet_id" not in trade_cols:
         await db.execute("ALTER TABLE trades ADD COLUMN live_bet_id TEXT")
+    # Actual fill data from the Manifold bet response — used for exact
+    # live-trade P&L instead of pre-bet price + requested size.
+    if "filled_amount" not in trade_cols:
+        await db.execute("ALTER TABLE trades ADD COLUMN filled_amount REAL")
+    if "prob_after" not in trade_cols:
+        await db.execute("ALTER TABLE trades ADD COLUMN prob_after REAL")
+    if "shares" not in trade_cols:
+        await db.execute("ALTER TABLE trades ADD COLUMN shares REAL")
 
     await db.commit()
