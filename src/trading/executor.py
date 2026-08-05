@@ -157,10 +157,16 @@ class TradeExecutor:
             trade["is_paper"] = 1
             return trade
 
-        amount = int(round(bet_size))
+        # Round half UP — int(round(2.5)) is 2 under Python's banker's
+        # rounding, which silently shrank every M$2.50 Kelly bet to M$2 for
+        # the first two months of live trading (found via reconciliation).
+        amount = int(bet_size + 0.5)
         if amount <= 0:
             logger.info("Live bet rounded to zero — skipping")
             return None
+        # Record what we will actually wager, not the pre-rounding float —
+        # otherwise DB stakes overstate reality and P&L inherits the error.
+        trade["size"] = float(amount)
 
         outcome = direction.upper()
         market_id = market.get("id")
@@ -194,7 +200,10 @@ class TradeExecutor:
             return trade
 
         self.cycle_live_count += 1
-        trade["live_bet_id"] = bet_resp.get("id")
+        # Manifold's POST /bet response carries the bet id as "betId"; the
+        # GET /bets objects use "id". We read both — relying on "id" alone
+        # left live_bet_id NULL on all 42 bets of the first two live months.
+        trade["live_bet_id"] = bet_resp.get("betId") or bet_resp.get("id")
         trade["filled_amount"] = bet_resp.get("amount") or amount
         trade["prob_after"] = bet_resp.get("probAfter")
         # shares = exact payout if this bet wins. Persisting it makes live

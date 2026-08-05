@@ -266,7 +266,40 @@ async def test_live_bet_rounds_to_integer_mana():
         )
         await executor.execute(_market(), direction="yes", bet_size=3.7)
 
-    assert fake_client.calls[0]["amount"] == 4  # round(3.7) = 4
+    assert fake_client.calls[0]["amount"] == 4  # 3.7 rounds up to 4
+
+
+@pytest.mark.asyncio
+async def test_live_bet_half_rounds_up_not_bankers():
+    """int(round(2.5)) is 2 under banker's rounding — that silently shrank
+    every M$2.50 Kelly bet to M$2 for two months. Half must round UP, and
+    the recorded size must be the integer actually wagered."""
+    fake_client = _FakeManifoldClient()
+    with patch("src.trading.executor.settings", _mock_settings(live_max_bet_mana=10)):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=False, manifold_client=fake_client,
+        )
+        trade = await executor.execute(_market(), direction="yes", bet_size=2.5)
+
+    assert fake_client.calls[0]["amount"] == 3      # half rounds up
+    assert trade["size"] == pytest.approx(3.0)      # DB records actual stake
+
+
+@pytest.mark.asyncio
+async def test_live_bet_id_read_from_betId_field():
+    """POST /bet returns the id as betId (GET /bets uses id) — reading only
+    'id' left live_bet_id NULL on every real bet. Prefer betId."""
+    fake_client = _FakeManifoldClient(
+        response={"betId": "bet_from_post", "amount": 3, "probAfter": 0.4, "shares": 6.1},
+    )
+    with patch("src.trading.executor.settings", _mock_settings()):
+        executor = TradeExecutor(
+            guardian=_FakeGuardian(), paper_mode=False, manifold_client=fake_client,
+        )
+        trade = await executor.execute(_market(), direction="no", bet_size=3.0)
+
+    assert trade["live_bet_id"] == "bet_from_post"
+    assert trade["shares"] == pytest.approx(6.1)
 
 
 @pytest.mark.asyncio
