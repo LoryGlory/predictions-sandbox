@@ -34,6 +34,34 @@
     </article>
 </div>
 
+{% if risk %}
+<h2>Live Risk</h2>
+{% if risk.kill_switch_active %}
+<article style="border-left: 4px solid #c0392b; padding: 0.6em 1em; background: rgba(192,57,43,0.08);">
+    <strong>⛔ KILL SWITCH ACTIVE</strong> — net live losses
+    M${{ "%.2f"|format(risk.net_losses) }} have reached the threshold of
+    M${{ "%.2f"|format(risk.kill_switch_threshold) }}. Live betting is halted;
+    paper trading continues. Raise BUDGET_TOTAL_LIMIT or investigate before resuming.
+</article>
+{% endif %}
+<div class="stat-grid">
+    <article class="stat-card">
+        <h3 style="{{ 'color:#c0392b' if risk.kill_switch_active else '' }}">
+            M${{ "%.2f"|format(risk.net_losses) }} / M${{ "%.0f"|format(risk.kill_switch_threshold) }}
+        </h3>
+        <small>Net live losses vs kill switch</small>
+    </article>
+    <article class="stat-card">
+        <h3>M${{ "%.0f"|format(risk.open_exposure) }} / M${{ "%.0f"|format(risk.total_limit) }}</h3>
+        <small>Open exposure vs limit</small>
+    </article>
+    <article class="stat-card">
+        <h3>M${{ "%.0f"|format(risk.daily_spent) }} / M${{ "%.0f"|format(risk.daily_limit) }}</h3>
+        <small>Live spend (24h) vs limit</small>
+    </article>
+</div>
+{% endif %}
+
 <h2>Recent Predictions</h2>
 {% if recent_predictions %}
 <figure>

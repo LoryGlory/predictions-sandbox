@@ -6,10 +6,31 @@ from config.settings import CATEGORY_BLACKLIST
 from src.db.connection import get_db
 from src.markets.manifold import ManifoldClient
 from src.tracking.calibration import brier_skill_score
+from src.trading.risk import BudgetGuardian
 
 logger = logging.getLogger(__name__)
 
 _BLACKLIST_SET = frozenset(CATEGORY_BLACKLIST)
+
+
+async def get_risk_status() -> dict:
+    """Guardian state as the pipeline would see it at next cycle start.
+
+    Reuses BudgetGuardian.seed_from_db so the dashboard can never disagree
+    with the actual enforcement logic.
+    """
+    guardian = BudgetGuardian.from_settings()
+    async with get_db(read_only=True) as db:
+        await guardian.seed_from_db(db)
+    return {
+        "daily_spent": guardian.daily_spent,
+        "daily_limit": guardian.daily_limit,
+        "open_exposure": guardian.open_exposure,
+        "total_limit": guardian.total_limit,
+        "net_losses": guardian.total_losses,
+        "kill_switch_threshold": guardian.kill_switch_threshold,
+        "kill_switch_active": guardian.kill_switch_active,
+    }
 
 
 async def get_manifold_balance() -> dict[str, float] | None:
@@ -94,6 +115,9 @@ async def get_overview_stats() -> dict:
 
     # Live Manifold balance (best-effort; renders as "—" if unavailable)
     stats["manifold"] = await get_manifold_balance()
+
+    # Guardian / kill-switch state as of next cycle
+    stats["risk"] = await get_risk_status()
 
     return stats
 
