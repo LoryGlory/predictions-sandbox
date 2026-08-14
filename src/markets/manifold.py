@@ -111,6 +111,38 @@ class ManifoldClient:
         resp.raise_for_status()
         return resp.json()
 
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
+    async def get_market_bets(
+        self,
+        contract_id: str,
+        limit: int = 1000,
+        before: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch a single market's trade history, newest first.
+
+        Contract-scoped sibling to get_bets. Each bet carries `probAfter` and
+        `createdTime`, which is what lets a historical price be reconstructed
+        for a point in time — the `probability` field on /v0/markets is the
+        CURRENT value and equals the outcome for resolved markets.
+
+        Args:
+            contract_id: Manifold market id.
+            limit: Page size (API max 1000).
+            before: Bet id to page backwards from (older than that bet).
+        """
+        assert self._client is not None, _ERR_CONTEXT_MANAGER
+        params: dict[str, Any] = {"contractId": contract_id, "limit": limit}
+        if before:
+            params["before"] = before
+        resp = await self._client.get("/bets", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
     # NO @retry here — deliberately. /bet is a non-idempotent, money-moving
     # POST with no idempotency key. A timeout does not mean the bet failed:
     # Manifold may have executed it and only the response was lost. Retrying
